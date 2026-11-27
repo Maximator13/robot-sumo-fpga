@@ -27,8 +27,8 @@ vlib work
 vlog -quiet $ip/submodules/altera_up_avalon_adv_adc.v $ip/submodules/adc_ctrl_adc_mega_0.v
 vcom -2008 -quiet $ip/adc_ctrl.vhd
 
-# Sources VHDL, dans l'ordre des dépendances (paquetage d'abord).
-foreach f {sumo_pkg circuit_reset diviseur_frequence pwm_gen UART_RX UART_TX
+# Sources VHDL, dans l'ordre des dépendances.
+foreach f {circuit_reset diviseur_frequence pwm_gen UART_RX UART_TX
            message_demarrage selection_mode detection_capteurs batterie_monitor
            fsm_combat suiveur_ligne robot_sumo_top} {
   vcom -2008 -quiet $src/$f.vhd
@@ -36,7 +36,7 @@ foreach f {sumo_pkg circuit_reset diviseur_frequence pwm_gen UART_RX UART_TX
 
 # Modèle de l'ADC128S022 (simulation seulement) et bancs de test.
 vcom -2008 -quiet $tb/adc128s022_model.vhd
-set bancs {tb_sumo_pkg tb_diviseur_frequence tb_circuit_reset tb_pwm_gen
+set bancs {tb_diviseur_frequence tb_circuit_reset tb_pwm_gen
            tb_UART_RX tb_message_demarrage tb_selection_mode
            tb_detection_capteurs tb_batterie_monitor tb_fsm_combat
            tb_suiveur_ligne tb_robot_sumo_top}

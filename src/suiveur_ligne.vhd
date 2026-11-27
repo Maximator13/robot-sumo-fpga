@@ -2,259 +2,220 @@
 -- Fichier      : suiveur_ligne.vhd
 -- Entité       : suiveur_ligne
 -- Projet       : Robot SUMO, DE0-Nano (Cyclone IV EP4CE22F17C6N)
--- Description  : Commande des deux moteurs en mode « suiveur de ligne » pour
---                la course sur la piste EMA (cahier des charges §4) : circuit
---                ouvert, départ posé à une extrémité de la ligne noire,
---                2 allers/retours, puis arrêt sur le point de départ. Le
---                robot rencontre donc 4 extrémités de ligne (l'extrémité de
---                départ ne compte pas) : demi-tour aux 3 premières, arrêt
---                définitif à la 4e.
+-- Description  : Commande des moteurs en mode « suiveur de ligne » pour la
+--                course sur la piste EMA (cahier des charges §4) : circuit
+--                ouvert, départ à une extrémité de la ligne noire, 2 allers /
+--                retours puis arrêt au point de départ. Le robot rencontre
+--                donc 4 extrémités : demi-tour aux 3 premières, arrêt à la 4e.
 -- Principe     : Machine à états de Moore (style du cours, chapitre 16),
---                horloge système 500 kHz, processus synchrone unique :
---                - INACTIF : mode suiveur non sélectionné, moteurs arrêtés,
---                  compteur d'extrémités et mémoire de côté remis à zéro.
---                - SUIVI : correction par paliers selon les 5 capteurs sol.
---                  La correction choisie est mémorisée dans un registre :
---                  elle donne la commande des roues et retient le dernier
---                  côté où la ligne a été vue.
---                - PERTE_LIGNE : les 5 capteurs voient blanc. On tourne vers
---                  le dernier côté vu (virage serré) ; si la ligne était
---                  centrée, on avance tout droit lentement et on compte les
---                  cycles tout blancs CONSÉCUTIFS : FIN_LIGNE_CYCLES_G
---                  cycles signifient une extrémité de ligne.
---                - DEMI_TOUR : pivot sur place, toujours vers la droite,
---                  jusqu'à ce que le capteur centre revoie la ligne.
---                - FIN_PARCOURS : NB_FINS_G extrémités atteintes, arrêt.
+--                horloge 500 kHz :
+--                - INACTIF : mode non sélectionné, moteurs arrêtés ;
+--                - SUIVI : correction selon la position de la ligne sous les
+--                  5 capteurs (tout droit, virage doux, pivot) ;
+--                - PERTE_LIGNE : les 5 capteurs voient blanc. Si la ligne
+--                  était sur un côté, c'est un virage serré : on pivote de ce
+--                  côté. Si elle était au centre, on avance lentement ; après
+--                  FIN_LIGNE_CYCLES_G cycles de blanc, c'est une extrémité ;
+--                - DEMI_TOUR : pivot à droite jusqu'à retrouver la ligne ;
+--                - FIN_PARCOURS : 4 extrémités atteintes, arrêt ;
 --                - ARRET_BATTERIE : batterie vide, arrêt définitif.
---                Priorités : reset > batt_vide > actif = '0' > le reste.
---                Les sorties sont décodées depuis l'état et le registre de
---                correction uniquement (Moore : aucun chemin combinatoire
---                des capteurs vers les moteurs).
--- Entrées      : clk       : horloge système 500 kHz.
---                rst_b     : reset asynchrone actif à '0'.
---                actif     : '1' quand le mode suiveur est sélectionné.
---                sol_noir  : capteurs sol binarisés, '1' = noir (ligne) ;
---                            bit 4 = gauche, 3 = centre gauche, 2 = centre,
---                            1 = centre droit, 0 = droit.
---                batt_vide : '1' quand la batterie est déclarée vide.
--- Sorties      : dir_gauche, dir_droit   : sens de chaque roue
---                                          (DIR_AVANT_* = marche avant).
---                duty_gauche, duty_droit : vitesse de chaque roue en %
---                                          (0 quand le robot est arrêté).
---                etat_dbg  : état courant pour la simulation et Signal Tap :
---                            INACTIF "000", SUIVI "001", PERTE_LIGNE "010",
---                            DEMI_TOUR "011", FIN_PARCOURS "100",
---                            ARRET_BATTERIE "101".
--- Génériques   : FIN_LIGNE_CYCLES_G : nombre de cycles tout blancs
---                consécutifs qui signale une extrémité de ligne (défaut
---                FIN_LIGNE_CYCLES = 100 000, soit 200 ms à 500 kHz, au moins
---                2) ; NB_FINS_G : nombre d'extrémités avant l'arrêt (défaut
---                NB_FINS_LIGNE = 4, soit 2 allers/retours).
+--                Le registre "position" mémorise les derniers capteurs ayant
+--                vu la ligne : il donne la correction en SUIVI et le côté où
+--                tourner en PERTE_LIGNE.
+-- Entrées      : clk, rst_b : horloge 500 kHz, reset asynchrone actif à '0'.
+--                actif      : '1' quand le mode suiveur est sélectionné.
+--                sol_noir   : capteurs de sol, '1' = noir ; bit 4 = gauche,
+--                             3 = centre gauche, 2 = centre, 1 = centre
+--                             droit, 0 = droit.
+--                batt_vide  : '1' quand la batterie est vide.
+-- Sorties      : avance_gauche, avance_droite   : '1' = la roue avance.
+--                vitesse_gauche, vitesse_droite : vitesse de chaque roue en %.
+-- Génériques   : FIN_LIGNE_CYCLES_G : cycles de blanc qui signalent une
+--                extrémité (100 000 = 200 ms à 500 kHz, à régler sur la piste).
 --------------------------------------------------------------------------------
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.NUMERIC_STD.ALL;
-USE WORK.sumo_pkg.ALL;
 
 ENTITY suiveur_ligne IS
   GENERIC (
-    FIN_LIGNE_CYCLES_G : NATURAL := FIN_LIGNE_CYCLES;   -- cycles tout blancs = extrémité
-    NB_FINS_G          : NATURAL := NB_FINS_LIGNE       -- extrémités avant l'arrêt
+    FIN_LIGNE_CYCLES_G : NATURAL := 100_000   -- 200 ms à 500 kHz (CALIBRATION)
   );
   PORT (
-    clk         : IN  STD_LOGIC;                      -- horloge système 500 kHz
-    rst_b       : IN  STD_LOGIC;                      -- reset asynchrone, actif à '0'
-    actif       : IN  STD_LOGIC;                      -- mode suiveur sélectionné
-    sol_noir    : IN  STD_LOGIC_VECTOR(4 DOWNTO 0);   -- capteurs sol, '1' = noir
-    batt_vide   : IN  STD_LOGIC;                      -- batterie vide
-    dir_gauche  : OUT STD_LOGIC;                      -- sens roue gauche
-    dir_droit   : OUT STD_LOGIC;                      -- sens roue droite
-    duty_gauche : OUT t_duty;                         -- vitesse roue gauche (%)
-    duty_droit  : OUT t_duty;                         -- vitesse roue droite (%)
-    etat_dbg    : OUT STD_LOGIC_VECTOR(2 DOWNTO 0)    -- état courant (mise au point)
+    clk            : IN  STD_LOGIC;                      -- horloge système 500 kHz
+    rst_b          : IN  STD_LOGIC;                      -- reset asynchrone, actif à '0'
+    actif          : IN  STD_LOGIC;                      -- mode suiveur sélectionné
+    sol_noir       : IN  STD_LOGIC_VECTOR(4 DOWNTO 0);   -- capteurs sol, '1' = noir
+    batt_vide      : IN  STD_LOGIC;                      -- batterie vide
+    avance_gauche  : OUT STD_LOGIC;                      -- roue gauche : '1' avance
+    avance_droite  : OUT STD_LOGIC;                      -- roue droite : '1' avance
+    vitesse_gauche : OUT UNSIGNED(6 DOWNTO 0);           -- vitesse roue gauche (%)
+    vitesse_droite : OUT UNSIGNED(6 DOWNTO 0)            -- vitesse roue droite (%)
   );
 END ENTITY suiveur_ligne;
 
 ARCHITECTURE suiveur_ligne_arch OF suiveur_ligne IS
 
   -- États de la machine (codage laissé au synthétiseur).
-  TYPE t_etat_suiveur IS (INACTIF, SUIVI, PERTE_LIGNE, DEMI_TOUR, FIN_PARCOURS, ARRET_BATTERIE);
+  TYPE t_etat_suiveur IS (INACTIF, SUIVI, PERTE_LIGNE, DEMI_TOUR,
+                          FIN_PARCOURS, ARRET_BATTERIE);
   SIGNAL etat : t_etat_suiveur;
 
-  -- Mouvements possibles du robot (commande des deux roues) :
-  --   TOUT_DROIT    : deux roues en avant à VITESSE_SUIVI ;
-  --   VIRAGE_GAUCHE : roue gauche ralentie à VITESSE_VIRAGE (virage doux) ;
-  --   PIVOT_GAUCHE  : roue gauche en arrière, droite en avant (sur place) ;
-  --   AVANCE_LENTE  : deux roues en avant à VITESSE_VIRAGE ;
-  --   ARRET         : moteurs arrêtés ; et les symétriques à droite.
-  TYPE t_mouvement IS (ARRET, TOUT_DROIT, VIRAGE_GAUCHE, VIRAGE_DROIT,
-                       PIVOT_GAUCHE, PIVOT_DROIT, AVANCE_LENTE);
+  -- 2 allers / retours sur un circuit ouvert = 4 extrémités atteintes.
+  CONSTANT NB_EXTREMITES : NATURAL := 4;
 
-  -- Correction choisie en SUIVI d'après les capteurs. Elle reste mémorisée
-  -- pendant une perte de ligne : elle indique alors le dernier côté vu
-  -- (TOUT_DROIT = ligne centrée).
-  SIGNAL correction : t_mouvement;
+  -- Vitesses en % (CALIBRATION).
+  CONSTANT VITESSE_ARRET  : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(0, 7);
+  CONSTANT VITESSE_SUIVI  : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(60, 7);  -- ligne droite
+  CONSTANT VITESSE_VIRAGE : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(25, 7);  -- roue intérieure, avance lente
 
-  -- Cycles tout blancs consécutifs vus en PERTE_LIGNE (saturé). Il n'est lu
-  -- que dans PERTE_LIGNE et repart de 1 à chaque entrée dans cet état : il
-  -- n'a pas besoin d'être remis à zéro ailleurs.
+  -- Derniers capteurs ayant vu la ligne (même ordre que sol_noir).
+  SIGNAL position    : STD_LOGIC_VECTOR(4 DOWNTO 0);
+  -- Cycles de blanc consécutifs en PERTE_LIGNE.
   SIGNAL duree_blanc : NATURAL RANGE 0 TO FIN_LIGNE_CYCLES_G;
+  -- Extrémités atteintes depuis l'activation du mode.
+  SIGNAL nb_fins     : NATURAL RANGE 0 TO NB_EXTREMITES;
 
-  -- Extrémités de ligne atteintes depuis l'activation du mode.
-  SIGNAL nb_fins : NATURAL RANGE 0 TO NB_FINS_G;
+  -- Position de la ligne déduite de "position" :
+  -- sous un capteur extérieur seul, ou sous un capteur centre-côté seul.
+  SIGNAL ligne_a_gauche_loin  : STD_LOGIC;
+  SIGNAL ligne_a_droite_loin  : STD_LOGIC;
+  SIGNAL ligne_a_gauche_pres  : STD_LOGIC;
+  SIGNAL ligne_a_droite_pres  : STD_LOGIC;
+  SIGNAL ligne_centree        : STD_LOGIC;
 
-  -- Mouvement commandé dans l'état courant.
-  SIGNAL mouvement : t_mouvement;
-
-  -- Vitesses converties au format de la consigne PWM.
-  CONSTANT DUTY_SUIVI  : t_duty := TO_UNSIGNED(VITESSE_SUIVI, t_duty'LENGTH);
-  CONSTANT DUTY_VIRAGE : t_duty := TO_UNSIGNED(VITESSE_VIRAGE, t_duty'LENGTH);
-  CONSTANT DUTY_NUL    : t_duty := (OTHERS => '0');
-
-  -- Correction par paliers d'après la position de la ligne sous les
-  -- capteurs, des capteurs extérieurs vers le centre :
-  --   ligne sous un capteur extérieur seul côté gauche : pivot à gauche ;
-  --   sous le centre gauche (sans le centre droit) : virage doux à gauche ;
-  --   symétrique à droite ;
-  --   ligne centrée ou vue de façon symétrique (centre seul, croisement
-  --   tout noir...) : tout droit.
-  FUNCTION correction_capteurs (s : STD_LOGIC_VECTOR(4 DOWNTO 0)) RETURN t_mouvement IS
-  BEGIN
-    IF s(4) = '1' AND s(0) = '0' THEN
-      RETURN PIVOT_GAUCHE;
-    ELSIF s(0) = '1' AND s(4) = '0' THEN
-      RETURN PIVOT_DROIT;
-    ELSIF s(3) = '1' AND s(1) = '0' THEN
-      RETURN VIRAGE_GAUCHE;
-    ELSIF s(1) = '1' AND s(3) = '0' THEN
-      RETURN VIRAGE_DROIT;
-    ELSE
-      RETURN TOUT_DROIT;
-    END IF;
-  END FUNCTION correction_capteurs;
+  -- Mouvements commandés, décodés depuis l'état et la position.
+  SIGNAL pivot_gauche  : STD_LOGIC;   -- roue gauche recule, droite avance
+  SIGNAL pivot_droit   : STD_LOGIC;   -- roue droite recule, gauche avance
+  SIGNAL ralentir_g    : STD_LOGIC;   -- roue gauche à vitesse réduite
+  SIGNAL ralentir_d    : STD_LOGIC;   -- roue droite à vitesse réduite
+  SIGNAL moteurs_coupes: STD_LOGIC;   -- robot à l'arrêt
 
 BEGIN
 
-  -- Calcul de l'état futur, de la correction, du décompte des cycles blancs
-  -- et du compteur d'extrémités (processus synchrone unique).
+  ------------------------------------------------------------------------------
+  -- Calcul de l'état suivant, de la position, du décompte de blanc et du
+  -- nombre d'extrémités.
+  ------------------------------------------------------------------------------
   sequencement : PROCESS (clk, rst_b)
   BEGIN
     IF rst_b = '0' THEN
-      -- Reset : robot à l'arrêt, parcours à recommencer depuis le départ.
       etat        <= INACTIF;
-      correction  <= TOUT_DROIT;
+      position    <= "00100";   -- ligne supposée centrée
       duree_blanc <= 0;
       nb_fins     <= 0;
     ELSIF RISING_EDGE(clk) THEN
+
+      -- Mémorise la position de la ligne chaque fois qu'elle est vue.
+      IF sol_noir /= "00000" THEN
+        position <= sol_noir;
+      END IF;
+
       IF etat = ARRET_BATTERIE OR batt_vide = '1' THEN
-        -- Batterie vide : arrêt définitif jusqu'au reset, même hors mode
-        -- suiveur (priorité sur actif).
+        -- Batterie vide : arrêt définitif jusqu'au reset.
         etat <= ARRET_BATTERIE;
 
       ELSIF actif = '0' THEN
-        -- Mode suiveur quitté : arrêt, et la prochaine activation repart
-        -- pour un parcours complet (compteur d'extrémités à 0, ligne
-        -- supposée centrée).
-        etat       <= INACTIF;
-        correction <= TOUT_DROIT;
-        nb_fins    <= 0;
+        -- Mode quitté : la prochaine activation repart pour un parcours
+        -- complet, ligne supposée centrée.
+        etat     <= INACTIF;
+        position <= "00100";
+        nb_fins  <= 0;
 
       ELSE
         CASE etat IS
 
           WHEN INACTIF =>
-            -- Mode suiveur sélectionné : le robot, posé sur la ligne au
-            -- point de départ, commence à la suivre.
+            -- Le robot, posé sur la ligne au départ, commence à la suivre.
             etat <= SUIVI;
 
           WHEN SUIVI =>
+            -- Plus aucun capteur sur la ligne : premier cycle de blanc.
             IF sol_noir = "00000" THEN
-              -- Plus aucun capteur sur la ligne : premier cycle blanc. La
-              -- correction n'est pas modifiée, elle garde le dernier côté vu.
               etat        <= PERTE_LIGNE;
               duree_blanc <= 1;
-            ELSE
-              correction <= correction_capteurs(sol_noir);
             END IF;
 
           WHEN PERTE_LIGNE =>
             IF sol_noir /= "00000" THEN
-              -- Ligne retrouvée : reprise du suivi, décompte abandonné.
-              etat       <= SUIVI;
-              correction <= correction_capteurs(sol_noir);
-            ELSIF duree_blanc + 1 >= FIN_LIGNE_CYCLES_G AND correction = TOUT_DROIT THEN
-              -- Ligne perdue alors qu'elle était centrée, et tout blanc
-              -- depuis FIN_LIGNE_CYCLES_G cycles : extrémité de ligne.
-              -- La dernière extrémité (retour au départ) arrête le robot.
-              IF nb_fins + 1 >= NB_FINS_G THEN
-                nb_fins <= NB_FINS_G;
+              -- Ligne retrouvée : reprise du suivi.
+              etat <= SUIVI;
+            ELSIF duree_blanc >= FIN_LIGNE_CYCLES_G - 1 AND ligne_centree = '1' THEN
+              -- Blanc prolongé alors que la ligne était au centre :
+              -- extrémité de ligne. La 4e (retour au départ) arrête le robot.
+              IF nb_fins = NB_EXTREMITES - 1 THEN
+                nb_fins <= NB_EXTREMITES;
                 etat    <= FIN_PARCOURS;
               ELSE
                 nb_fins <= nb_fins + 1;
                 etat    <= DEMI_TOUR;
               END IF;
             ELSIF duree_blanc < FIN_LIGNE_CYCLES_G THEN
-              -- Encore blanc : on continue de compter (virage serré si la
-              -- ligne était sur un côté, sans conclure à une extrémité).
               duree_blanc <= duree_blanc + 1;
             END IF;
 
           WHEN DEMI_TOUR =>
-            -- On pivote jusqu'à ce que le capteur centre retrouve la ligne.
+            -- Pivot jusqu'à ce que le capteur centre retrouve la ligne.
             IF sol_noir(2) = '1' THEN
-              etat       <= SUIVI;
-              correction <= correction_capteurs(sol_noir);
+              etat <= SUIVI;
             END IF;
 
           WHEN FIN_PARCOURS =>
-            -- Parcours terminé : on reste arrêté sur le point de départ.
             etat <= FIN_PARCOURS;
 
           WHEN ARRET_BATTERIE =>
             etat <= ARRET_BATTERIE;
-
-          WHEN OTHERS =>
-            etat <= INACTIF;
 
         END CASE;
       END IF;
     END IF;
   END PROCESS sequencement;
 
-  -- Mouvement de Moore, décodé depuis l'état et la correction mémorisée :
-  -- en perte de ligne, on tourne sur place vers le dernier côté vu, ou on
-  -- avance lentement si la ligne était centrée (extrémité possible).
-  mouvement <= ARRET         WHEN etat = INACTIF OR etat = FIN_PARCOURS OR etat = ARRET_BATTERIE ELSE
-               PIVOT_DROIT   WHEN etat = DEMI_TOUR ELSE
-               correction    WHEN etat = SUIVI ELSE
-               AVANCE_LENTE  WHEN correction = TOUT_DROIT ELSE
-               PIVOT_GAUCHE  WHEN correction = VIRAGE_GAUCHE OR correction = PIVOT_GAUCHE ELSE
-               PIVOT_DROIT;
+  ------------------------------------------------------------------------------
+  -- Position de la ligne, des capteurs extérieurs vers le centre.
+  ------------------------------------------------------------------------------
+  ligne_a_gauche_loin <= position(4) AND NOT position(0);
+  ligne_a_droite_loin <= position(0) AND NOT position(4);
+  ligne_a_gauche_pres <= NOT ligne_a_gauche_loin AND NOT ligne_a_droite_loin
+                         AND position(3) AND NOT position(1);
+  ligne_a_droite_pres <= NOT ligne_a_gauche_loin AND NOT ligne_a_droite_loin
+                         AND position(1) AND NOT position(3);
+  ligne_centree       <= NOT (ligne_a_gauche_loin OR ligne_a_droite_loin
+                              OR ligne_a_gauche_pres OR ligne_a_droite_pres);
 
-  -- Sens des roues : seule la roue intérieure d'un pivot recule.
-  dir_gauche <= NOT DIR_AVANT_GAUCHE WHEN mouvement = PIVOT_GAUCHE ELSE DIR_AVANT_GAUCHE;
-  dir_droit  <= NOT DIR_AVANT_DROIT  WHEN mouvement = PIVOT_DROIT  ELSE DIR_AVANT_DROIT;
+  ------------------------------------------------------------------------------
+  -- Mouvements de Moore, décodés depuis l'état et la position mémorisée.
+  ------------------------------------------------------------------------------
+  -- SUIVI : pivot si la ligne est sous un capteur extérieur, virage doux
+  --         (roue intérieure ralentie) si elle est sous un capteur centre-côté.
+  -- PERTE_LIGNE : pivot vers le dernier côté vu, ou avance lente si centrée.
+  -- DEMI_TOUR : pivot à droite.
+  pivot_gauche <= '1' WHEN (etat = SUIVI AND ligne_a_gauche_loin = '1')
+                        OR (etat = PERTE_LIGNE AND (ligne_a_gauche_loin = '1' OR ligne_a_gauche_pres = '1'))
+                  ELSE '0';
+  pivot_droit  <= '1' WHEN (etat = SUIVI AND ligne_a_droite_loin = '1')
+                        OR (etat = PERTE_LIGNE AND (ligne_a_droite_loin = '1' OR ligne_a_droite_pres = '1'))
+                        OR etat = DEMI_TOUR
+                  ELSE '0';
+  ralentir_g   <= '1' WHEN (etat = SUIVI AND ligne_a_gauche_pres = '1')
+                        OR (etat = PERTE_LIGNE AND ligne_centree = '1')
+                  ELSE '0';
+  ralentir_d   <= '1' WHEN (etat = SUIVI AND ligne_a_droite_pres = '1')
+                        OR (etat = PERTE_LIGNE AND ligne_centree = '1')
+                  ELSE '0';
+  moteurs_coupes <= '1' WHEN etat = INACTIF OR etat = FIN_PARCOURS OR etat = ARRET_BATTERIE
+                    ELSE '0';
 
-  -- Vitesses : la roue intérieure d'un virage doux est ralentie, les deux
-  -- roues sont lentes en avance prudente, sinon vitesse de suivi.
-  WITH mouvement SELECT
-    duty_gauche <= DUTY_NUL    WHEN ARRET,
-                   DUTY_VIRAGE WHEN VIRAGE_GAUCHE | AVANCE_LENTE,
-                   DUTY_SUIVI  WHEN OTHERS;
+  -- Sens : seule la roue intérieure d'un pivot recule.
+  avance_gauche <= NOT pivot_gauche;
+  avance_droite <= NOT pivot_droit;
 
-  WITH mouvement SELECT
-    duty_droit <= DUTY_NUL    WHEN ARRET,
-                  DUTY_VIRAGE WHEN VIRAGE_DROIT | AVANCE_LENTE,
-                  DUTY_SUIVI  WHEN OTHERS;
-
-  -- État courant codé pour la mise au point.
-  WITH etat SELECT
-    etat_dbg <= "000" WHEN INACTIF,
-                "001" WHEN SUIVI,
-                "010" WHEN PERTE_LIGNE,
-                "011" WHEN DEMI_TOUR,
-                "100" WHEN FIN_PARCOURS,
-                "101" WHEN ARRET_BATTERIE,
-                "111" WHEN OTHERS;
+  -- Vitesses : arrêt, vitesse réduite, ou vitesse de suivi.
+  vitesse_gauche <= VITESSE_ARRET  WHEN moteurs_coupes = '1' ELSE
+                    VITESSE_VIRAGE WHEN ralentir_g = '1' ELSE
+                    VITESSE_SUIVI;
+  vitesse_droite <= VITESSE_ARRET  WHEN moteurs_coupes = '1' ELSE
+                    VITESSE_VIRAGE WHEN ralentir_d = '1' ELSE
+                    VITESSE_SUIVI;
 
 END ARCHITECTURE suiveur_ligne_arch;

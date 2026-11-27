@@ -33,8 +33,8 @@
 --                  nouvelle adresse est quand même prise en compte (cas le
 --                  plus défavorable pour le contrôleur).
 -- Entrées      : cs_n, sclk, din : bus SPI piloté par le contrôleur.
---                valeurs         : valeur 12 bits de chaque voie (choisie
---                                  par le banc de test).
+--                valeurs         : valeurs 12 bits des 8 voies, mises bout à
+--                                  bout (voie k = bits 12k+11 à 12k).
 -- Sorties      : dout              : donnée série vers le contrôleur.
 --                nb_conversions    : conversions complètes effectuées.
 --                erreurs_timing    : violations des contraintes ci-dessus.
@@ -44,7 +44,6 @@
 LIBRARY IEEE;
 USE IEEE.STD_LOGIC_1164.ALL;
 USE IEEE.NUMERIC_STD.ALL;
-USE WORK.sumo_pkg.ALL;
 
 ENTITY adc128s022_model IS
   PORT (
@@ -52,7 +51,7 @@ ENTITY adc128s022_model IS
     sclk               : IN  STD_LOGIC;
     din                : IN  STD_LOGIC;
     dout               : OUT STD_LOGIC;
-    valeurs            : IN  t_voies_adc;
+    valeurs            : IN  STD_LOGIC_VECTOR(95 DOWNTO 0);
     nb_conversions     : OUT NATURAL := 0;
     erreurs_timing     : OUT NATURAL := 0;
     trames_incompletes : OUT NATURAL := 0
@@ -70,7 +69,7 @@ BEGIN
 
   modele : PROCESS
     VARIABLE adresse     : NATURAL := 0;   -- voie de la prochaine conversion (IN0 au démarrage)
-    VARIABLE mot         : t_mot_adc;      -- résultat de la conversion en cours
+    VARIABLE mot         : STD_LOGIC_VECTOR(11 DOWNTO 0);   -- résultat de la conversion en cours
     VARIABLE ctrl        : STD_LOGIC_VECTOR(7 DOWNTO 0);
     VARIABLE nb_montants : NATURAL;
     VARIABLE nb_descendants : NATURAL;
@@ -95,7 +94,7 @@ BEGIN
     t_montant := NOW;
     t_descendant := NOW;
     periode := 0 ns;
-    mot := valeurs(adresse);
+    mot := valeurs(12 * adresse + 11 DOWNTO 12 * adresse);
     ctrl := (OTHERS => '0');
     nb_montants := 0;
     nb_descendants := 0;
@@ -163,7 +162,7 @@ BEGIN
           conversions := conversions + 1;
           nb_conversions <= conversions;
           adresse := TO_INTEGER(UNSIGNED(ctrl(5 DOWNTO 3)));
-          mot := valeurs(adresse);
+          mot := valeurs(12 * adresse + 11 DOWNTO 12 * adresse);
         END IF;
       END IF;
     END LOOP;

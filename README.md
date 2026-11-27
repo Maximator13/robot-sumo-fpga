@@ -35,11 +35,10 @@ PC ◄─ UART_TX ◄─ message_demarrage
 
 | Module | Horloge | Rôle |
 |---|---|---|
-| `sumo_pkg` | - | Constantes (durées, seuils, vitesses) et types partagés |
 | `circuit_reset` | 50 MHz | Reset général de 1 ms, BP1 synchronisé par 2 bascules |
 | `diviseur_frequence` | 50 MHz | Horloge système 500 kHz (division par 100) |
 | `adc_ctrl` (IP) | 50 MHz | Lecture SPI des 8 voies de l'ADC (SCLK 3,125 MHz) |
-| `detection_capteurs` | 500 kHz | Seuil noir / clair, signal de bordure, synchronisation des capteurs IR |
+| `detection_capteurs` | 500 kHz | Seuil noir / clair, signal de bordure, détection de l'adversaire (capteurs IR synchronisés) |
 | `batterie_monitor` | 500 kHz | LED7 (PWM ou clignotement), détection de batterie vide |
 | `UART_RX`, `UART_TX` | 500 kHz | Réception et émission série |
 | `message_demarrage` | 500 kHz | Envoi de `Robot PRET !\n\r` après chaque reset |
@@ -75,7 +74,7 @@ Le détail (schéma des blocs, machines à états, ressources) est dans [`livrab
 2. Lancer la compilation complète (Processing > Start Compilation).
 3. Résultat attendu : 0 erreur, aucun latch, toutes les marges de timing positives. Les broches sont visibles dans Assignments > Pin Planner.
 
-Ressources utilisées : 848 éléments logiques sur 22 320 (4 %), 532 registres, 22 broches.
+Ressources utilisées : 753 éléments logiques sur 22 320 (3 %), 495 registres, 22 broches.
 
 ## Simuler
 
@@ -83,7 +82,7 @@ Ressources utilisées : 848 éléments logiques sur 22 320 (4 %), 532 registres,
 2. File > Change Directory vers le dossier `sim/`.
 3. Dans la console : `do simuler.do`
 
-Le script compile l'IP de l'ADC, les sources et les 12 bancs de test, les exécute et affiche un bilan (OK / ECHEC). Chaque banc vérifie lui-même ses résultats ; le banc `tb_robot_sumo_top` simule le robot complet (message de démarrage, combat, bordure, batterie vide, reset par BP1, suivi de ligne).
+Le script compile l'IP de l'ADC, les sources et les 11 bancs de test, les exécute et affiche un bilan (OK / ECHEC). Chaque banc vérifie lui-même ses résultats ; le banc `tb_robot_sumo_top` simule le robot complet (message de démarrage, combat, bordure, batterie vide, reset par BP1, suivi de ligne).
 
 ## Programmer et utiliser
 
@@ -103,15 +102,15 @@ Le script compile l'IP de l'ADC, les sources et les 12 bancs de test, les exécu
 
 ## Calibration
 
-Les réglages propres à chaque robot sont regroupés dans `src/sumo_pkg.vhd` (recompiler après modification) :
+Chaque module garde ses propres constantes, documentées en tête de fichier (pas de paquetage commun). Les réglages propres à chaque robot sont (recompiler après modification) :
 
-| Constante | Valeur par défaut | Réglage |
+| Constante (fichier) | Valeur par défaut | Réglage |
 |---|---|---|
-| `SEUIL_NOIR` | 2048 | LED0 à LED4 allumées sur noir et sur le gris des lignes de départ, éteintes sur la bordure beige et sur le blanc |
-| `DIR_AVANT_GAUCHE`, `DIR_AVANT_DROIT` | '1', '1' | En recherche, la roue gauche doit avancer et la droite reculer ; inverser la constante de la roue fautive |
-| `VITESSE_*` | 100 / 40 / 70 / 60 / 25 % | Attaque, recherche, recul, suivi, roue intérieure en virage |
-| `BORDURE_MAINTIEN_CYCLES` | 150 000 (300 ms) | Durée du recul après détection de la bordure |
-| `FIN_LIGNE_CYCLES` | 100 000 (200 ms) | Durée de blanc considérée comme une extrémité de ligne, à ajuster sur la piste EMA |
+| `SEUIL_NOIR_G` (`detection_capteurs`) | 2048 | LED0 à LED4 allumées sur noir et sur le gris des lignes de départ, éteintes sur la bordure beige et sur le blanc |
+| `DIR_AVANT_GAUCHE`, `DIR_AVANT_DROIT` (`robot_sumo_top`) | '1', '1' | En recherche, la roue gauche doit avancer et la droite reculer ; inverser la constante de la roue fautive |
+| `VITESSE_*` (`fsm_combat`, `suiveur_ligne`) | 100 / 40 / 70 et 60 / 25 % | Attaque, recherche, recul ; suivi, roue intérieure en virage |
+| `BORDURE_MAINTIEN_CYCLES_G` (`robot_sumo_top`) | 150 000 (300 ms) | Durée du recul après détection de la bordure |
+| `FIN_LIGNE_CYCLES_G` (`robot_sumo_top`) | 100 000 (200 ms) | Durée de blanc considérée comme une extrémité de ligne, à ajuster sur la piste EMA |
 
 ## Matériel
 
