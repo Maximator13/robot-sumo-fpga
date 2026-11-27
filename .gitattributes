@@ -6,6 +6,7 @@
 *.qip  text
 *.qsys text
 *.html text
+*.md   text
 # Fichiers binaires
 *.sof  binary
 *.jic  binary
