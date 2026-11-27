@@ -23,6 +23,8 @@ ARCHITECTURE tb_selection_mode_arch OF tb_selection_mode IS
   SIGNAL rst_b        : STD_LOGIC := '0';
   SIGNAL rx_dv        : STD_LOGIC := '0';
   SIGNAL rx_octet     : STD_LOGIC_VECTOR(7 DOWNTO 0) := (OTHERS => '0');
+  SIGNAL key0_b       : STD_LOGIC := '1';   -- KEY0 (suiveur), relâché
+  SIGNAL key1_b       : STD_LOGIC := '1';   -- KEY1 (combat), relâché
   SIGNAL mode_combat  : STD_LOGIC;
   SIGNAL mode_suiveur : STD_LOGIC;
   SIGNAL fin_simu     : BOOLEAN := FALSE;
@@ -31,6 +33,7 @@ BEGIN
 
   u_selection : ENTITY WORK.selection_mode
     PORT MAP (clk => clk, rst_b => rst_b, rx_dv => rx_dv, rx_octet => rx_octet,
+              key_suiveur_b => key0_b, key_combat_b => key1_b,
               mode_combat => mode_combat, mode_suiveur => mode_suiveur);
 
   horloge : PROCESS
@@ -83,6 +86,15 @@ BEGIN
 
     recevoir(x"63");   -- retour en combat
     verifier(mode_combat = '1' AND mode_suiveur = '0', "passage de suiveur à combat impossible");
+
+    -- Boutons de la carte : KEY0 = suiveur, KEY1 = combat (actifs à '0').
+    key0_b <= '0'; WAIT FOR 10 us; key0_b <= '1'; WAIT FOR 10 us;
+    verifier(mode_combat = '0' AND mode_suiveur = '1', "KEY0 ne sélectionne pas le suiveur");
+    key1_b <= '0'; WAIT FOR 10 us; key1_b <= '1'; WAIT FOR 10 us;
+    verifier(mode_combat = '1' AND mode_suiveur = '0', "KEY1 ne sélectionne pas le combat");
+    -- Les deux boutons à la fois : le mode ne change pas.
+    key0_b <= '0'; key1_b <= '0'; WAIT FOR 10 us; key0_b <= '1'; key1_b <= '1'; WAIT FOR 10 us;
+    verifier(mode_combat = '1' AND mode_suiveur = '0', "les deux boutons ensemble changent le mode");
 
     rst_b <= '0';
     WAIT FOR 1 us;

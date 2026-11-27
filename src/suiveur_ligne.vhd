@@ -11,7 +11,8 @@
 --                horloge 500 kHz :
 --                - INACTIF : mode non sélectionné, moteurs arrêtés ;
 --                - SUIVI : correction selon la position de la ligne sous les
---                  5 capteurs (tout droit, virage doux, pivot) ;
+--                  5 capteurs (tout droit, correction légère, virage doux, roue intérieure
+--                  arrêtée pour un virage serré, sans marche arrière) ;
 --                - PERTE_LIGNE : les 5 capteurs voient blanc. Si la ligne
 --                  était sur un côté, c'est un virage serré : on pivote de ce
 --                  côté. Si elle était au centre, on avance lentement ; après
@@ -22,6 +23,11 @@
 --                Le registre "position" mémorise les derniers capteurs ayant
 --                vu la ligne : il donne la correction en SUIVI et le côté où
 --                tourner en PERTE_LIGNE.
+--                Angle droit : la branche passe sous un capteur extérieur
+--                juste avant la perte de ligne. Ce côté est retenu pendant
+--                FIN_LIGNE_CYCLES_G cycles (branche_g / branche_d) : la perte
+--                de ligne qui suit donne un pivot de ce côté, jamais un
+--                demi-tour.
 -- Entrées      : clk, rst_b : horloge 500 kHz, reset asynchrone actif à '0'.
 --                actif      : '1' quand le mode suiveur est sélectionné.
 --                sol_noir   : capteurs de sol, '1' = noir ; bit 4 = gauche,
@@ -66,8 +72,9 @@ ARCHITECTURE suiveur_ligne_arch OF suiveur_ligne IS
 
   -- Vitesses en % (CALIBRATION).
   CONSTANT VITESSE_ARRET  : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(0, 7);
-  CONSTANT VITESSE_SUIVI  : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(60, 7);  -- ligne droite
-  CONSTANT VITESSE_VIRAGE : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(25, 7);  -- roue intérieure, avance lente
+  CONSTANT VITESSE_SUIVI  : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(65, 7);  -- ligne droite
+  CONSTANT VITESSE_LEGER  : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(45, 7);  -- roue intérieure, léger écart
+  CONSTANT VITESSE_VIRAGE : UNSIGNED(6 DOWNTO 0) := TO_UNSIGNED(30, 7);  -- roue intérieure, avance lente
 
   -- Derniers capteurs ayant vu la ligne (même ordre que sol_noir).
   SIGNAL position    : STD_LOGIC_VECTOR(4 DOWNTO 0);
@@ -75,20 +82,34 @@ ARCHITECTURE suiveur_ligne_arch OF suiveur_ligne IS
   SIGNAL duree_blanc : NATURAL RANGE 0 TO FIN_LIGNE_CYCLES_G;
   -- Extrémités atteintes depuis l'activation du mode.
   SIGNAL nb_fins     : NATURAL RANGE 0 TO NB_EXTREMITES;
+  -- Branche d'angle droit vue récemment par un capteur extérieur, et
+  -- cycles restants avant de l'oublier (décompte gelé en PERTE_LIGNE).
+  SIGNAL branche_g     : STD_LOGIC;
+  SIGNAL branche_d     : STD_LOGIC;
+  SIGNAL duree_branche : NATURAL RANGE 0 TO FIN_LIGNE_CYCLES_G;
 
-  -- Position de la ligne déduite de "position" :
-  -- sous un capteur extérieur seul, ou sous un capteur centre-côté seul.
+  -- Position de la ligne déduite de "position", du plus fort au plus
+  -- faible écart : capteur extérieur seul (loin), capteur centre-côté sans
+  -- le centre (pres), capteur centre-côté avec le centre (leger).
   SIGNAL ligne_a_gauche_loin  : STD_LOGIC;
   SIGNAL ligne_a_droite_loin  : STD_LOGIC;
   SIGNAL ligne_a_gauche_pres  : STD_LOGIC;
   SIGNAL ligne_a_droite_pres  : STD_LOGIC;
-  SIGNAL ligne_centree        : STD_LOGIC;
+  SIGNAL ligne_a_gauche_leger : STD_LOGIC;
+  SIGNAL ligne_a_droite_leger : STD_LOGIC;
+  -- Ligne perdue : côté où pivoter (branche récente, sinon dernière position).
+  SIGNAL perdue_a_gauche      : STD_LOGIC;
+  SIGNAL perdue_a_droite      : STD_LOGIC;
 
   -- Mouvements commandés, décodés depuis l'état et la position.
   SIGNAL pivot_gauche  : STD_LOGIC;   -- roue gauche recule, droite avance
   SIGNAL pivot_droit   : STD_LOGIC;   -- roue droite recule, gauche avance
   SIGNAL ralentir_g    : STD_LOGIC;   -- roue gauche à vitesse réduite
   SIGNAL ralentir_d    : STD_LOGIC;   -- roue droite à vitesse réduite
+  SIGNAL corriger_g    : STD_LOGIC;   -- roue gauche à vitesse légère
+  SIGNAL corriger_d    : STD_LOGIC;   -- roue droite à vitesse légère
+  SIGNAL arreter_g     : STD_LOGIC;   -- roue gauche arrêtée (virage serré)
+  SIGNAL arreter_d     : STD_LOGIC;   -- roue droite arrêtée (virage serré)
   SIGNAL moteurs_coupes: STD_LOGIC;   -- robot à l'arrêt
 
 BEGIN
@@ -104,11 +125,32 @@ BEGIN
       position    <= "00100";   -- ligne supposée centrée
       duree_blanc <= 0;
       nb_fins     <= 0;
+      branche_g     <= '0';
+      branche_d     <= '0';
+      duree_branche <= 0;
     ELSIF RISING_EDGE(clk) THEN
 
       -- Mémorise la position de la ligne chaque fois qu'elle est vue.
       IF sol_noir /= "00000" THEN
         position <= sol_noir;
+      END IF;
+
+      -- Branche vue par un seul capteur extérieur : côté retenu un moment.
+      IF sol_noir(4) = '1' AND sol_noir(0) = '0' THEN
+        branche_g     <= '1';
+        branche_d     <= '0';
+        duree_branche <= FIN_LIGNE_CYCLES_G;
+      ELSIF sol_noir(0) = '1' AND sol_noir(4) = '0' THEN
+        branche_g     <= '0';
+        branche_d     <= '1';
+        duree_branche <= FIN_LIGNE_CYCLES_G;
+      ELSIF etat /= PERTE_LIGNE THEN
+        IF duree_branche > 0 THEN
+          duree_branche <= duree_branche - 1;
+        ELSE
+          branche_g <= '0';
+          branche_d <= '0';
+        END IF;
       END IF;
 
       IF etat = ARRET_BATTERIE OR batt_vide = '1' THEN
@@ -121,6 +163,8 @@ BEGIN
         etat     <= INACTIF;
         position <= "00100";
         nb_fins  <= 0;
+        branche_g <= '0';
+        branche_d <= '0';
 
       ELSE
         CASE etat IS
@@ -140,9 +184,10 @@ BEGIN
             IF sol_noir /= "00000" THEN
               -- Ligne retrouvée : reprise du suivi.
               etat <= SUIVI;
-            ELSIF duree_blanc >= FIN_LIGNE_CYCLES_G - 1 AND ligne_centree = '1' THEN
-              -- Blanc prolongé alors que la ligne était au centre :
-              -- extrémité de ligne. La 4e (retour au départ) arrête le robot.
+            ELSIF duree_blanc >= FIN_LIGNE_CYCLES_G - 1
+                  AND perdue_a_gauche = '0' AND perdue_a_droite = '0' THEN
+              -- Blanc prolongé alors que la ligne était au centre, sans
+              -- branche d'angle droit vue juste avant : extrémité de ligne. La 4e (retour au départ) arrête le robot.
               IF nb_fins = NB_EXTREMITES - 1 THEN
                 nb_fins <= NB_EXTREMITES;
                 etat    <= FIN_PARCOURS;
@@ -174,35 +219,45 @@ BEGIN
   ------------------------------------------------------------------------------
   -- Position de la ligne, des capteurs extérieurs vers le centre.
   ------------------------------------------------------------------------------
-  ligne_a_gauche_loin <= position(4) AND NOT position(0);
-  ligne_a_droite_loin <= position(0) AND NOT position(4);
-  ligne_a_gauche_pres <= NOT ligne_a_gauche_loin AND NOT ligne_a_droite_loin
-                         AND position(3) AND NOT position(1);
-  ligne_a_droite_pres <= NOT ligne_a_gauche_loin AND NOT ligne_a_droite_loin
-                         AND position(1) AND NOT position(3);
-  ligne_centree       <= NOT (ligne_a_gauche_loin OR ligne_a_droite_loin
-                              OR ligne_a_gauche_pres OR ligne_a_droite_pres);
+  ligne_a_gauche_loin  <= position(4) AND NOT position(3) AND NOT position(0);
+  ligne_a_droite_loin  <= position(0) AND NOT position(1) AND NOT position(4);
+  ligne_a_gauche_pres  <= position(3) AND NOT position(2) AND NOT position(1);
+  ligne_a_droite_pres  <= position(1) AND NOT position(2) AND NOT position(3);
+  ligne_a_gauche_leger <= position(3) AND position(2) AND NOT position(1);
+  ligne_a_droite_leger <= position(1) AND position(2) AND NOT position(3);
+
+  -- Ligne perdue : une branche récente l'emporte sur la dernière position.
+  perdue_a_gauche <= branche_g OR (NOT branche_d AND (ligne_a_gauche_loin
+                     OR ligne_a_gauche_pres OR ligne_a_gauche_leger));
+  perdue_a_droite <= branche_d OR (NOT branche_g AND (ligne_a_droite_loin
+                     OR ligne_a_droite_pres OR ligne_a_droite_leger));
 
   ------------------------------------------------------------------------------
   -- Mouvements de Moore, décodés depuis l'état et la position mémorisée.
   ------------------------------------------------------------------------------
-  -- SUIVI : pivot si la ligne est sous un capteur extérieur, virage doux
-  --         (roue intérieure ralentie) si elle est sous un capteur centre-côté.
-  -- PERTE_LIGNE : pivot vers le dernier côté vu, ou avance lente si centrée.
+  -- SUIVI : roue intérieure arrêtée si la ligne est sous un capteur extérieur
+  --         (pas de marche arrière : pas d'à-coup dans les courbes), virage
+  --         doux (roue intérieure ralentie) sous un capteur centre-côté seul,
+  --         correction légère s'il est vu avec le centre. Ces paliers
+  --         progressifs évitent les saccades dans les courbes.
+  -- PERTE_LIGNE : pivot vers la branche ou le dernier côté vu, sinon avance
+  --               lente (peut-être une extrémité).
   -- DEMI_TOUR : pivot à droite.
-  pivot_gauche <= '1' WHEN (etat = SUIVI AND ligne_a_gauche_loin = '1')
-                        OR (etat = PERTE_LIGNE AND (ligne_a_gauche_loin = '1' OR ligne_a_gauche_pres = '1'))
+  pivot_gauche <= '1' WHEN (etat = PERTE_LIGNE AND perdue_a_gauche = '1')
                   ELSE '0';
-  pivot_droit  <= '1' WHEN (etat = SUIVI AND ligne_a_droite_loin = '1')
-                        OR (etat = PERTE_LIGNE AND (ligne_a_droite_loin = '1' OR ligne_a_droite_pres = '1'))
+  pivot_droit  <= '1' WHEN (etat = PERTE_LIGNE AND perdue_a_droite = '1')
                         OR etat = DEMI_TOUR
                   ELSE '0';
   ralentir_g   <= '1' WHEN (etat = SUIVI AND ligne_a_gauche_pres = '1')
-                        OR (etat = PERTE_LIGNE AND ligne_centree = '1')
+                        OR (etat = PERTE_LIGNE AND perdue_a_gauche = '0' AND perdue_a_droite = '0')
                   ELSE '0';
   ralentir_d   <= '1' WHEN (etat = SUIVI AND ligne_a_droite_pres = '1')
-                        OR (etat = PERTE_LIGNE AND ligne_centree = '1')
+                        OR (etat = PERTE_LIGNE AND perdue_a_gauche = '0' AND perdue_a_droite = '0')
                   ELSE '0';
+  corriger_g   <= '1' WHEN etat = SUIVI AND ligne_a_gauche_leger = '1' ELSE '0';
+  corriger_d   <= '1' WHEN etat = SUIVI AND ligne_a_droite_leger = '1' ELSE '0';
+  arreter_g    <= '1' WHEN etat = SUIVI AND ligne_a_gauche_loin = '1' ELSE '0';
+  arreter_d    <= '1' WHEN etat = SUIVI AND ligne_a_droite_loin = '1' ELSE '0';
   moteurs_coupes <= '1' WHEN etat = INACTIF OR etat = FIN_PARCOURS OR etat = ARRET_BATTERIE
                     ELSE '0';
 
@@ -210,12 +265,14 @@ BEGIN
   avance_gauche <= NOT pivot_gauche;
   avance_droite <= NOT pivot_droit;
 
-  -- Vitesses : arrêt, vitesse réduite, ou vitesse de suivi.
-  vitesse_gauche <= VITESSE_ARRET  WHEN moteurs_coupes = '1' ELSE
+  -- Vitesses : arrêt, vitesse réduite, vitesse légère, ou vitesse de suivi.
+  vitesse_gauche <= VITESSE_ARRET  WHEN moteurs_coupes = '1' OR arreter_g = '1' ELSE
                     VITESSE_VIRAGE WHEN ralentir_g = '1' ELSE
+                    VITESSE_LEGER  WHEN corriger_g = '1' ELSE
                     VITESSE_SUIVI;
-  vitesse_droite <= VITESSE_ARRET  WHEN moteurs_coupes = '1' ELSE
+  vitesse_droite <= VITESSE_ARRET  WHEN moteurs_coupes = '1' OR arreter_d = '1' ELSE
                     VITESSE_VIRAGE WHEN ralentir_d = '1' ELSE
+                    VITESSE_LEGER  WHEN corriger_d = '1' ELSE
                     VITESSE_SUIVI;
 
 END ARCHITECTURE suiveur_ligne_arch;

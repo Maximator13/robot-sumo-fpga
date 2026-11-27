@@ -2,12 +2,12 @@
 
 Projet du cours « Circuits logiques programmables (FPGA) / VHDL », MKX 3A, IMT Mines Alès.
 
-Le FPGA Cyclone IV E (EP4CE22F17C6N) d'une carte Terasic DE0-Nano pilote un robot mini-sumo dans deux modes, choisis depuis un PC par liaison série :
+Le FPGA Cyclone IV E (EP4CE22F17C6N) d'une carte Terasic DE0-Nano pilote un robot mini-sumo dans deux modes, choisis depuis un PC par liaison série ou directement avec les boutons de la carte :
 
-| Commande | Mode |
-|---|---|
-| `c` | Combat SUMO : attente réglementaire de 5 s, recherche de l'adversaire, attaque, évitement de la bordure du Dohyo |
-| `s` | Suiveur de ligne : course sur la piste « EMA », 2 allers-retours puis arrêt au point de départ |
+| Commande PC | Bouton DE0-Nano | Mode |
+|---|---|---|
+| `c` | KEY1 | Combat SUMO : attente réglementaire de 5 s, recherche de l'adversaire, attaque, évitement de la bordure du Dohyo |
+| `s` | KEY0 | Suiveur de ligne : course sur la piste « EMA », 2 allers-retours puis arrêt au point de départ |
 
 À la mise sous tension (et après un appui sur BP1), le robot envoie `Robot PRET !` au PC puis attend une commande.
 
@@ -17,7 +17,8 @@ Le FPGA Cyclone IV E (EP4CE22F17C6N) d'une carte Terasic DE0-Nano pilote un robo
 - Horloge système de 500 kHz obtenue par division de l'oscillateur 50 MHz.
 - Lecture en boucle des 8 voies de l'ADC128S022 (batterie et 5 capteurs de sol) par l'IP « ADC Controller for DE-series Boards ».
 - Machine à états du combat conforme au diagramme du cahier des charges (6 états).
-- Machine à états du suivi de ligne : correction par paliers, gestion des virages serrés, demi-tour aux extrémités, arrêt après 4 extrémités.
+- Machine à états du suivi de ligne : correction par paliers, gestion des virages serrés et des angles droits, demi-tour aux extrémités, arrêt après 4 extrémités.
+- Choix du mode sans PC : KEY0 = suiveur, KEY1 = combat (boutons synchronisés par 2 bascules).
 - Commande des moteurs par PWM 5 kHz sur les entrées ENABLE du pont en H L293D.
 - Surveillance de la batterie : LED7 en PWM proportionnelle à la tension (10 % à 7,2 V, 100 % à 9 V) ; sous 7,2 V, LED7 clignote à 1 Hz et les moteurs sont arrêtés.
 - Liaison série 9600 bauds, 8 bits, sans parité, 1 bit de stop (modules UART fournis, commentés).
@@ -74,7 +75,7 @@ Le détail (schéma des blocs, machines à états, ressources) est dans [`livrab
 2. Lancer la compilation complète (Processing > Start Compilation).
 3. Résultat attendu : 0 erreur, aucun latch, toutes les marges de timing positives. Les broches sont visibles dans Assignments > Pin Planner.
 
-Ressources utilisées : 753 éléments logiques sur 22 320 (3 %), 495 registres, 22 broches.
+Ressources utilisées : 815 éléments logiques sur 22 320 (4 %), 519 registres, 24 broches.
 
 ## Simuler
 
@@ -90,7 +91,7 @@ Le script compile l'IP de l'ADC, les sources et les 11 bancs de test, les exécu
 2. Programmer la DE0-Nano (Tools > Programmer, mode JTAG) avec `quartus/output_files/robot_sumo.jic` pour une configuration persistante, ou `robot_sumo.sof` pour un essai.
 3. Ouvrir le terminal série sur le port COM du module USB/série : 9600 bauds, 8N1, sans contrôle de flux.
 4. Mettre le robot sous tension : `Robot PRET !` s'affiche.
-5. Envoyer `c` (combat, départ après 5 s) ou `s` (suivi de ligne). BP1 relance le robot en attente.
+5. Envoyer `c` (combat, départ après 5 s) ou `s` (suivi de ligne), ou appuyer sur KEY1 (combat) ou KEY0 (suiveur) de la DE0-Nano. BP1 relance le robot en attente.
 
 ### LED de la DE0-Nano
 
@@ -108,7 +109,8 @@ Chaque module garde ses propres constantes, documentées en tête de fichier (pa
 |---|---|---|
 | `SEUIL_NOIR_G` (`detection_capteurs`) | 2048 | LED0 à LED4 allumées sur noir et sur le gris des lignes de départ, éteintes sur la bordure beige et sur le blanc |
 | `DIR_AVANT_GAUCHE`, `DIR_AVANT_DROIT` (`robot_sumo_top`) | '1', '1' | En recherche, la roue gauche doit avancer et la droite reculer ; inverser la constante de la roue fautive |
-| `VITESSE_*` (`fsm_combat`, `suiveur_ligne`) | 100 / 40 / 70 et 60 / 25 % | Attaque, recherche, recul ; suivi, roue intérieure en virage |
+| `VITESSE_*` (`fsm_combat`) | 100 / 40 / 70 % | Attaque, recherche, recul |
+| `VITESSE_*` (`suiveur_ligne`) | 65 / 45 / 30 % | Suivi en ligne droite ; roue intérieure en correction légère, en virage (arrêtée en virage serré) |
 | `BORDURE_MAINTIEN_CYCLES_G` (`robot_sumo_top`) | 150 000 (300 ms) | Durée du recul après détection de la bordure |
 | `FIN_LIGNE_CYCLES_G` (`robot_sumo_top`) | 100 000 (200 ms) | Durée de blanc considérée comme une extrémité de ligne, à ajuster sur la piste EMA |
 

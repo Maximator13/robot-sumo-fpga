@@ -27,8 +27,9 @@
 --                - LED : led(7) = batterie, led(6 DOWNTO 5) = mode ("00"
 --                  attente, "01" combat, "10" suiveur), led(4 DOWNTO 0) =
 --                  capteurs de sol voyant du noir (aide au réglage du seuil).
--- Entrées      : clock_50 (PIN_R8), bp1_b (BP1), ir_gauche_b / ir_droit_b
---                (capteurs d'obstacle), uart_rx (PC), adc_sdat (ADC).
+-- Entrées      : clock_50 (PIN_R8), bp1_b (BP1), key0_b / key1_b (boutons
+--                de la DE0-Nano : suiveur / combat, sans PC), ir_gauche_b /
+--                ir_droit_b (capteurs d'obstacle), uart_rx (PC), adc_sdat (ADC).
 -- Sorties      : uart_tx (PC), mot_gauche_dir / mot_gauche_en,
 --                mot_droit_dir / mot_droit_en (pont en H), adc_cs_n /
 --                adc_saddr / adc_sclk (ADC), led (8 LED).
@@ -54,6 +55,8 @@ ENTITY robot_sumo_top IS
   PORT (
     clock_50       : IN  STD_LOGIC;                      -- oscillateur 50 MHz
     bp1_b          : IN  STD_LOGIC;                      -- bouton BP1, actif à '0'
+    key0_b         : IN  STD_LOGIC;                      -- KEY0 : mode suiveur, actif à '0'
+    key1_b         : IN  STD_LOGIC;                      -- KEY1 : mode combat, actif à '0'
     ir_gauche_b    : IN  STD_LOGIC;                      -- obstacle à gauche si '0'
     ir_droit_b     : IN  STD_LOGIC;                      -- obstacle à droite si '0'
     uart_rx        : IN  STD_LOGIC;                      -- ligne série PC -> robot
@@ -223,12 +226,14 @@ ARCHITECTURE robot_sumo_top_arch OF robot_sumo_top IS
   END COMPONENT message_demarrage;
 
   COMPONENT selection_mode IS
-    PORT (clk          : IN  STD_LOGIC;
-          rst_b        : IN  STD_LOGIC;
-          rx_dv        : IN  STD_LOGIC;
-          rx_octet     : IN  STD_LOGIC_VECTOR(7 DOWNTO 0);
-          mode_combat  : OUT STD_LOGIC;
-          mode_suiveur : OUT STD_LOGIC);
+    PORT (clk           : IN  STD_LOGIC;
+          rst_b         : IN  STD_LOGIC;
+          rx_dv         : IN  STD_LOGIC;
+          rx_octet      : IN  STD_LOGIC_VECTOR(7 DOWNTO 0);
+          key_suiveur_b : IN  STD_LOGIC;
+          key_combat_b  : IN  STD_LOGIC;
+          mode_combat   : OUT STD_LOGIC;
+          mode_suiveur  : OUT STD_LOGIC);
   END COMPONENT selection_mode;
 
   COMPONENT fsm_combat IS
@@ -344,6 +349,7 @@ BEGIN
 
   u_selection_mode : selection_mode
     PORT MAP (clk => s_clk_500k, rst_b => s_rst_b, rx_dv => s_rx_dv, rx_octet => s_rx_octet,
+              key_suiveur_b => key0_b, key_combat_b => key1_b,
               mode_combat => s_mode_combat, mode_suiveur => s_mode_suiveur);
 
   ------------------------------------------------------------------------------

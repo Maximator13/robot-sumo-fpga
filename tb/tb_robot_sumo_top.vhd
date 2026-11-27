@@ -46,6 +46,8 @@ ARCHITECTURE tb_robot_sumo_top_arch OF tb_robot_sumo_top IS
 
   SIGNAL clock_50    : STD_LOGIC := '0';
   SIGNAL bp1_b       : STD_LOGIC := '1';
+  SIGNAL key0_b      : STD_LOGIC := '1';   -- KEY0 (suiveur), relâché
+  SIGNAL key1_b      : STD_LOGIC := '1';   -- KEY1 (combat), relâché
   SIGNAL ir_gauche_b : STD_LOGIC := '1';
   SIGNAL ir_droit_b  : STD_LOGIC := '1';
   SIGNAL uart_rx     : STD_LOGIC := '1';
@@ -69,7 +71,8 @@ BEGIN
     GENERIC MAP (RESET_CYCLES_G => RESET_SIM, ATTENTE_COMBAT_CYCLES_G => ATTENTE_SIM,
                  CLIGNO_DEMI_CYCLES_G => CLIGNO_SIM, FILTRE_BATT_CYCLES_G => FILTRE_SIM,
                  BORDURE_MAINTIEN_CYCLES_G => BORDURE_SIM, FIN_LIGNE_CYCLES_G => FIN_LIGNE_SIM)
-    PORT MAP (clock_50 => clock_50, bp1_b => bp1_b, ir_gauche_b => ir_gauche_b,
+    PORT MAP (clock_50 => clock_50, bp1_b => bp1_b, key0_b => key0_b, key1_b => key1_b,
+              ir_gauche_b => ir_gauche_b,
               ir_droit_b => ir_droit_b, uart_rx => uart_rx, uart_tx => uart_tx,
               mot_gauche_dir => mot_g_dir, mot_gauche_en => mot_g_en,
               mot_droit_dir => mot_d_dir, mot_droit_en => mot_d_en,
@@ -243,13 +246,23 @@ BEGIN
     pc_envoie('s');
     WAIT FOR 300 us;
     verifier(led(6 DOWNTO 5) = "10", "LED du mode suiveur éteinte");
-    moteurs('1', '1', 60, 60, "suivi de ligne tout droit");
+    moteurs('1', '1', 65, 65, "suivi de ligne tout droit");
 
     -- Ligne sous le capteur centre gauche : virage doux à gauche.
     voie(2, CLAIR);
     voie(1, NOIR);
     WAIT FOR 300 us;
-    moteurs('1', '1', 25, 60, "virage doux à gauche");
+    moteurs('1', '1', 30, 65, "virage doux à gauche");
+
+    ----------------------------------------------------------------------------
+    -- 8. Boutons de la DE0-Nano : KEY1 = combat, KEY0 = suiveur, sans PC.
+    ----------------------------------------------------------------------------
+    key1_b <= '0'; WAIT FOR 20 us; key1_b <= '1';
+    WAIT FOR 20 us;
+    verifier(led(6 DOWNTO 5) = "01", "KEY1 ne passe pas en mode combat");
+    key0_b <= '0'; WAIT FOR 20 us; key0_b <= '1';
+    WAIT FOR 20 us;
+    verifier(led(6 DOWNTO 5) = "10", "KEY0 ne passe pas en mode suiveur");
 
     -- Aucun nouvel écart de timing SPI après la trame coupée par BP1.
     verifier(err_timing = err_bp1, "écarts de timing sur le bus de l'ADC après BP1");

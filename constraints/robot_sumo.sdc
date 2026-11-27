@@ -17,7 +17,7 @@ derive_clock_uncertainty
 
 # Entrées asynchrones (bouton, capteurs IR, ligne série) : resynchronisées par
 # deux bascules dans le design, aucune contrainte de chemin à imposer.
-set_false_path -from [get_ports {bp1_b ir_gauche_b ir_droit_b uart_rx}]
+set_false_path -from [get_ports {bp1_b key0_b key1_b ir_gauche_b ir_droit_b uart_rx}]
 
 # Sorties lentes (LED, moteurs, ligne série) : pas de contrainte de temps.
 set_false_path -to [get_ports {led[*] mot_gauche_dir mot_gauche_en mot_droit_dir mot_droit_en uart_tx}]

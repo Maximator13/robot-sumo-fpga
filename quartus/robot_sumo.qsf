@@ -64,6 +64,8 @@ set_global_assignment -name VHDL_FILE ../src/robot_sumo_top.vhd
 set_global_assignment -name QIP_FILE ../ip/adc_ctrl/synthesis/adc_ctrl.qip
 set_location_assignment PIN_R8 -to clock_50
 set_location_assignment PIN_G15 -to bp1_b
+set_location_assignment PIN_J15 -to key0_b
+set_location_assignment PIN_E1 -to key1_b
 set_location_assignment PIN_A14 -to ir_gauche_b
 set_location_assignment PIN_C14 -to ir_droit_b
 set_location_assignment PIN_D16 -to uart_rx

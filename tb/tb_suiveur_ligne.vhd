@@ -6,7 +6,7 @@
 -- Principe     : Horloge 500 kHz, détection d'extrémité réduite à 10 cycles
 --                de blanc. On impose la position de la ligne sous les 5
 --                capteurs et on vérifie la commande des roues : tout droit,
---                virages doux, pivots, perte de ligne dans un virage serré,
+--                virages doux, virages serrés, angle droit, perte de ligne dans un virage serré,
 --                extrémité de ligne puis demi-tour, arrêt après 4 extrémités
 --                (2 allers / retours), arrêt si la batterie est vide.
 --                "TEST OK" seulement si 0 échec.
@@ -106,30 +106,44 @@ BEGIN
 
     -- Corrections selon la position de la ligne.
     actif <= '1';
-    tester("00100", '1', '1', 60, 60, "ligne au centre : tout droit");
-    tester("01000", '1', '1', 25, 60, "ligne au centre gauche : virage doux à gauche");
-    tester("10000", '0', '1', 60, 60, "ligne à gauche : pivot à gauche");
-    tester("00010", '1', '1', 60, 25, "ligne au centre droit : virage doux à droite");
-    tester("00001", '1', '0', 60, 60, "ligne à droite : pivot à droite");
-    tester("11111", '1', '1', 60, 60, "croisement tout noir : tout droit");
+    tester("00100", '1', '1', 65, 65, "ligne au centre : tout droit");
+    tester("01000", '1', '1', 30, 65, "ligne au centre gauche : virage doux à gauche");
+    tester("01100", '1', '1', 45, 65, "ligne entre centre et centre gauche : correction légère");
+    tester("00110", '1', '1', 65, 45, "ligne entre centre et centre droit : correction légère");
+    tester("11000", '1', '1', 30, 65, "ligne entre gauche et centre gauche : virage doux");
+    tester("10000", '1', '1', 0, 65, "ligne à gauche : roue gauche arrêtée");
+    tester("00010", '1', '1', 65, 30, "ligne au centre droit : virage doux à droite");
+    tester("00001", '1', '1', 65, 0, "ligne à droite : roue droite arrêtée");
+    tester("11111", '1', '1', 65, 65, "croisement tout noir : tout droit");
+    attendre(FIN_SIM + 2);   -- oubli de la branche vue par le capteur droit
 
     -- Perte de ligne dans un virage serré à gauche : pivot vers la gauche.
-    tester("01000", '1', '1', 25, 60, "virage doux avant la perte");
-    tester("00000", '0', '1', 60, 60, "perte de ligne à gauche : pivot à gauche");
+    tester("01000", '1', '1', 30, 65, "virage doux avant la perte");
+    tester("00000", '0', '1', 65, 65, "perte de ligne à gauche : pivot à gauche");
     attendre(FIN_SIM * 2);
     verifier(avance_g = '0' AND avance_d = '1', "virage serré pris pour une extrémité");
-    tester("00100", '1', '1', 60, 60, "ligne retrouvée");
+    tester("00100", '1', '1', 65, 65, "ligne retrouvée");
+
+    -- Angle droit à gauche : la branche passe sous les capteurs de gauche
+    -- (motif large classé « centré »), puis la ligne disparaît au centre.
+    tester("11110", '1', '1', 65, 65, "branche d'angle droit à gauche");
+    tester("00100", '1', '1', 65, 65, "fin de la ligne avant l'angle");
+    tester("00000", '0', '1', 65, 65, "angle droit à gauche : pivot à gauche");
+    attendre(FIN_SIM * 2);
+    verifier(avance_g = '0' AND avance_d = '1', "angle droit pris pour une extrémité");
+    tester("00100", '1', '1', 65, 65, "sortie de l'angle droit");
+    attendre(FIN_SIM + 2);   -- oubli de la branche
 
     -- Perte de ligne au centre : avance lente, puis demi-tour (pivot droit).
-    tester("00000", '1', '1', 25, 25, "perte au centre : avance lente");
+    tester("00000", '1', '1', 30, 30, "perte au centre : avance lente");
     attendre(FIN_SIM);
-    verifier(avance_g = '1' AND avance_d = '0' AND vitesse_g = 60, "extrémité : pas de demi-tour");
-    tester("00100", '1', '1', 60, 60, "fin du demi-tour : suivi");
+    verifier(avance_g = '1' AND avance_d = '0' AND vitesse_g = 65, "extrémité : pas de demi-tour");
+    tester("00100", '1', '1', 65, 65, "fin du demi-tour : suivi");
 
     -- Trois autres extrémités : arrêt à la 4e (2 allers / retours).
     extremite;
     extremite;
-    verifier(vitesse_g = 60 AND vitesse_d = 60, "arrêt avant la 4e extrémité");
+    verifier(vitesse_g = 65 AND vitesse_d = 65, "arrêt avant la 4e extrémité");
     sol_noir <= "00000";
     attendre(FIN_SIM + 3);
     verifier(vitesse_g = 0 AND vitesse_d = 0, "pas d'arrêt à la 4e extrémité");
@@ -141,7 +155,7 @@ BEGIN
     actif <= '0';
     attendre(2);
     actif <= '1';
-    tester("00100", '1', '1', 60, 60, "nouveau parcours");
+    tester("00100", '1', '1', 65, 65, "nouveau parcours");
     batt_vide <= '1';
     attendre(2);
     verifier(vitesse_g = 0 AND vitesse_d = 0, "batterie vide : moteurs non arrêtés");
