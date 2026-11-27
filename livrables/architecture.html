@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Robot SUMO - Architecture FPGA</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; color: #1a1a1a; line-height: 1.42; margin: 0; background: #fff; }
+  h1 { font-size: 20pt; margin: 0 0 4px; color: #0b3d6b; }
+  h2 { font-size: 13.5pt; color: #0b3d6b; border-bottom: 2px solid #0b3d6b; padding-bottom: 2px; margin: 22px 0 8px; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 14px 0 6px; color: #23527c; page-break-after: avoid; }
+  .sous-titre { color: #555; margin-bottom: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0 10px; font-size: 9.5pt; page-break-inside: avoid; }
+  th, td { border: 1px solid #b8c4d0; padding: 3px 6px; text-align: left; vertical-align: top; }
+  th { background: #e8eef5; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9pt; background: #f2f4f7; padding: 0 3px; }
+  pre { font-family: Consolas, "Courier New", monospace; font-size: 8.8pt; background: #f2f4f7; padding: 6px 8px; border-left: 3px solid #0b3d6b; white-space: pre-wrap; page-break-inside: avoid; }
+  .note { background: #fff8e1; border-left: 3px solid #e0a000; padding: 6px 9px; margin: 8px 0; page-break-inside: avoid; }
+  .figure { text-align: center; margin: 8px 0 4px; page-break-inside: avoid; }
+  .legende { text-align: center; font-size: 9pt; color: #555; margin-bottom: 10px; page-break-inside: avoid; }
+  ul, ol { margin: 4px 0 8px; padding-left: 22px; }
+  li { margin: 2px 0; }
+  .saut { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>Robot SUMO : architecture implémentée dans le FPGA</h1>
+<div class="sous-titre">Cours FPGA/VHDL MKX 3A, IMT Mines Alès. Carte Terasic DE0-Nano (Intel Cyclone IV E EP4CE22F17C6N), Quartus Prime Lite 20.1.</div>
+
+<h2>1. Fonctions réalisées</h2>
+<ul>
+  <li><b>Démarrage</b> : à la mise sous tension (et après chaque appui sur BP1), reset de 1 ms puis envoi au PC du message <code>Robot PRET !\n\r</code> par la liaison série (9600 bauds, 8 bits, sans parité, 1 stop), puis attente d'une commande.</li>
+  <li><b>Choix du mode</b> par le PC : <code>c</code> = combat SUMO, <code>s</code> = suiveur de ligne (course EMA). Les autres caractères sont ignorés ; le mode peut être changé à tout moment.</li>
+  <li><b>Combat SUMO</b> : machine à états imposée (§6.3 du cahier des charges) : attente de 5 s, recherche de l'adversaire en tournant sur place, attaque, évitement de la bordure du Dohyo, arrêt définitif si la batterie est vide.</li>
+  <li><b>Suiveur de ligne</b> : suivi de la ligne noire par 5 capteurs de sol, demi-tour à chaque extrémité du circuit ouvert, arrêt après 2 allers/retours (4 extrémités).</li>
+  <li><b>Batterie</b> : LED7 commandée en PWM, rapport cyclique proportionnel à la tension (100 % à 9 V, 10 % à 7,2 V) ; sous 7,2 V pendant 1 s, LED7 clignote à 1 Hz et les moteurs sont arrêtés.</li>
+  <li><b>Contraintes respectées</b> : circuit de reset de 1 ms (§6.1), horloge système de 500 kHz issue d'un diviseur (§6.2), PWM moteurs à 5 kHz (§6), émetteur et récepteur série fournis (UART_TX, UART_RX, §5), utilisés sans modification de leur logique.</li>
+</ul>
+
+<h2>2. Architecture générale</h2>
+<div class="figure">
+<svg viewBox="0 0 980 600" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial" font-size="12">
+  <defs>
+    <marker id="f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker>
+  </defs>
+  <!-- Cadre FPGA -->
+  <rect x="150" y="20" width="680" height="565" rx="8" fill="#f4f8fc" stroke="#0b3d6b" stroke-width="2"/>
+  <text x="160" y="40" font-size="14" font-weight="bold" fill="#0b3d6b">FPGA Cyclone IV : robot_sumo_top</text>
+  <!-- Domaine 50 MHz -->
+  <rect x="165" y="52" width="250" height="210" rx="6" fill="#eef5ec" stroke="#5a8f4f" stroke-dasharray="5,3"/>
+  <text x="175" y="70" fill="#3b6b31" font-weight="bold">Domaine 50 MHz</text>
+  <rect x="180" y="80" width="105" height="48" rx="4" fill="#fff" stroke="#333"/>
+  <text x="232" y="100" text-anchor="middle" font-weight="bold">circuit_reset</text>
+  <text x="232" y="117" text-anchor="middle" font-size="10.5">rst_b 1 ms</text>
+  <rect x="305" y="80" width="100" height="48" rx="4" fill="#fff" stroke="#333"/>
+  <text x="355" y="100" text-anchor="middle" font-weight="bold">diviseur_</text>
+  <text x="355" y="116" text-anchor="middle" font-weight="bold">frequence</text>
+  <rect x="180" y="160" width="225" height="88" rx="4" fill="#fff" stroke="#333"/>
+  <text x="292" y="183" text-anchor="middle" font-weight="bold">adc128s022_ctrl</text>
+  <text x="292" y="201" text-anchor="middle" font-size="10.5">SPI 3,125 MHz, 8 voies en boucle</text>
+  <text x="292" y="218" text-anchor="middle" font-size="10.5">sortie voies(0..7), 12 bits</text>
+  <!-- Notes : reset, horloge système, paquetage -->
+  <text x="172" y="400" font-size="10" fill="#333">rst_b (circuit_reset) : reset asynchrone de</text>
+  <text x="172" y="414" font-size="10" fill="#333">tous les blocs, sauf UART_RX et UART_TX.</text>
+  <text x="172" y="434" font-size="10" fill="#333">clk_500KHz (diviseur_frequence) : horloge</text>
+  <text x="172" y="448" font-size="10" fill="#333">de tous les blocs du domaine 500 kHz.</text>
+  <text x="172" y="468" font-size="10" fill="#333">Paquetage sumo_pkg : constantes, seuils,</text>
+  <text x="172" y="482" font-size="10" fill="#333">vitesses, types (réglages de calibration).</text>
+  <!-- Domaine 500 kHz -->
+  <rect x="430" y="52" width="388" height="520" rx="6" fill="#eef3fb" stroke="#4a6fa5" stroke-dasharray="5,3"/>
+  <text x="440" y="70" fill="#2f5b94" font-weight="bold">Domaine 500 kHz (clk_500KHz)</text>
+  <rect x="445" y="80" width="155" height="70" rx="4" fill="#fff" stroke="#333"/>
+  <text x="522" y="102" text-anchor="middle" font-weight="bold">detection_capteurs</text>
+  <text x="522" y="119" text-anchor="middle" font-size="10.5">sol_noir, bordure,</text>
+  <text x="522" y="134" text-anchor="middle" font-size="10.5">adversaire, code batterie</text>
+  <rect x="445" y="170" width="155" height="55" rx="4" fill="#fff" stroke="#333"/>
+  <text x="522" y="192" text-anchor="middle" font-weight="bold">batterie_monitor</text>
+  <text x="522" y="210" text-anchor="middle" font-size="10.5">LED7 PWM, batt_vide</text>
+  <rect x="445" y="250" width="70" height="44" rx="4" fill="#fff" stroke="#333"/>
+  <text x="480" y="276" text-anchor="middle" font-weight="bold" font-size="11.5">UART_RX</text>
+  <rect x="530" y="250" width="70" height="44" rx="4" fill="#fff" stroke="#333"/>
+  <text x="565" y="276" text-anchor="middle" font-weight="bold" font-size="11.5">UART_TX</text>
+  <rect x="445" y="320" width="70" height="50" rx="4" fill="#fff8e8" stroke="#b07a00" stroke-width="1.5"/>
+  <text x="480" y="341" text-anchor="middle" font-weight="bold" font-size="11.5">selection_</text>
+  <text x="480" y="357" text-anchor="middle" font-weight="bold" font-size="11.5">mode</text>
+  <rect x="530" y="320" width="70" height="50" rx="4" fill="#fff8e8" stroke="#b07a00" stroke-width="1.5"/>
+  <text x="565" y="341" text-anchor="middle" font-weight="bold" font-size="11.5">message_</text>
+  <text x="565" y="357" text-anchor="middle" font-weight="bold" font-size="11.5">demarrage</text>
+  <rect x="530" y="395" width="70" height="40" rx="4" fill="#fff" stroke="#333"/>
+  <text x="565" y="412" text-anchor="middle" font-weight="bold" font-size="11">masque TX</text>
+  <text x="565" y="427" text-anchor="middle" font-size="9.5">repos au reset</text>
+  <rect x="650" y="80" width="155" height="70" rx="4" fill="#fff8e8" stroke="#b07a00" stroke-width="1.5"/>
+  <text x="727" y="105" text-anchor="middle" font-weight="bold">fsm_combat</text>
+  <text x="727" y="122" text-anchor="middle" font-size="10.5">FSM imposée (§6.3)</text>
+  <text x="727" y="137" text-anchor="middle" font-size="10.5">sens + vitesse des roues</text>
+  <rect x="650" y="170" width="155" height="70" rx="4" fill="#fff8e8" stroke="#b07a00" stroke-width="1.5"/>
+  <text x="727" y="195" text-anchor="middle" font-weight="bold">suiveur_ligne</text>
+  <text x="727" y="212" text-anchor="middle" font-size="10.5">FSM suivi, demi-tours,</text>
+  <text x="727" y="227" text-anchor="middle" font-size="10.5">arrêt après 4 extrémités</text>
+  <rect x="650" y="265" width="155" height="50" rx="4" fill="#fff" stroke="#333"/>
+  <text x="727" y="287" text-anchor="middle" font-weight="bold">aiguillage moteurs</text>
+  <text x="727" y="304" text-anchor="middle" font-size="10.5">combat si mode = combat</text>
+  <rect x="650" y="345" width="70" height="46" rx="4" fill="#fff" stroke="#333"/>
+  <text x="685" y="365" text-anchor="middle" font-weight="bold">pwm_gen</text>
+  <text x="685" y="381" text-anchor="middle" font-size="10">gauche 5 kHz</text>
+  <rect x="735" y="345" width="70" height="46" rx="4" fill="#fff" stroke="#333"/>
+  <text x="770" y="365" text-anchor="middle" font-weight="bold">pwm_gen</text>
+  <text x="770" y="381" text-anchor="middle" font-size="10">droit 5 kHz</text>
+  <rect x="445" y="490" width="360" height="44" rx="4" fill="#fff" stroke="#333"/>
+  <text x="625" y="509" text-anchor="middle" font-weight="bold">registres de sortie (bascules)</text>
+  <text x="625" y="525" text-anchor="middle" font-size="10.5">sens moteurs, LED 0..7</text>
+  <!-- Entrées externes -->
+  <text x="20" y="64" font-weight="bold">BP1 (G15)</text>
+  <polyline points="85,60 158,60 158,90 178,90" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <text x="20" y="116" font-weight="bold">CLOCK_50 (R8)</text>
+  <line x1="120" y1="112" x2="178" y2="112" stroke="#333" marker-end="url(#f)"/>
+  <circle cx="170" cy="112" r="2.5" fill="#333"/>
+  <polyline points="170,112 170,175 178,175" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <circle cx="170" cy="145" r="2.5" fill="#333"/>
+  <polyline points="170,145 355,145 355,130" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <text x="20" y="208" font-weight="bold">ADC128S022</text>
+  <text x="20" y="224" font-size="10.5">CS, SCLK, DIN, DOUT</text>
+  <line x1="130" y1="205" x2="178" y2="205" stroke="#333" marker-end="url(#f)"/>
+  <line x1="178" y1="220" x2="130" y2="220" stroke="#333" marker-end="url(#f)"/>
+  <text x="20" y="300" font-weight="bold">IR gauche / droit</text>
+  <text x="20" y="315" font-size="10.5">(A14, C14)</text>
+  <polyline points="130,297 422,297 422,140 443,140" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <text x="20" y="362" font-weight="bold">PC : RX (D16)</text>
+  <polyline points="120,358 426,358 426,272 443,272" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <!-- Reset et horloge système -->
+  <line x1="285" y1="104" x2="303" y2="104" stroke="#333" marker-end="url(#f)"/>
+  <line x1="405" y1="104" x2="428" y2="104" stroke="#333" stroke-width="1.6" marker-end="url(#f)"/>
+  <!-- Mesures de l'ADC -->
+  <line x1="405" y1="205" x2="443" y2="125" stroke="#4a6fa5" stroke-width="1.6" marker-end="url(#f)"/>
+  <!-- Vers fsm_combat : adversaire et bordure, batt_vide, mode -->
+  <line x1="600" y1="95" x2="648" y2="95" stroke="#333" marker-end="url(#f)"/>
+  <circle cx="616" cy="205" r="2.5" fill="#333"/>
+  <polyline points="616,205 616,120 648,120" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <!-- Vers suiveur_ligne : sol_noir, batt_vide, mode -->
+  <polyline points="600,130 632,130 632,185 648,185" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <line x1="600" y1="205" x2="648" y2="205" stroke="#333" marker-end="url(#f)"/>
+  <!-- Liaison série -->
+  <line x1="480" y1="294" x2="480" y2="318" stroke="#333" marker-end="url(#f)"/>
+  <line x1="552" y1="320" x2="552" y2="296" stroke="#333" marker-end="url(#f)"/>
+  <line x1="578" y1="294" x2="578" y2="318" stroke="#333" marker-end="url(#f)"/>
+  <polyline points="600,262 608,262 608,382 565,382 565,393" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <!-- Mode : vers fsm_combat, suiveur_ligne, aiguillage et LED -->
+  <line x1="470" y1="370" x2="470" y2="488" stroke="#333" marker-end="url(#f)"/>
+  <circle cx="470" cy="460" r="2.5" fill="#333"/>
+  <polyline points="470,460 640,460 640,140 648,140" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <circle cx="640" cy="228" r="2.5" fill="#333"/>
+  <line x1="640" y1="228" x2="648" y2="228" stroke="#333" marker-end="url(#f)"/>
+  <circle cx="640" cy="290" r="2.5" fill="#333"/>
+  <line x1="640" y1="290" x2="648" y2="290" stroke="#333" marker-end="url(#f)"/>
+  <text x="474" y="455" font-size="9.5" fill="#555">mode</text>
+  <!-- Les deux machines attaquent l'aiguillage en parallèle -->
+  <polyline points="805,115 812,115 812,280 807,280" fill="none" stroke="#b07a00" stroke-width="1.4" marker-end="url(#f)"/>
+  <line x1="727" y1="240" x2="727" y2="263" stroke="#b07a00" stroke-width="1.4" marker-end="url(#f)"/>
+  <!-- Aiguillage vers PWM (vitesses) et vers les bascules (sens) -->
+  <line x1="685" y1="315" x2="685" y2="343" stroke="#333" marker-end="url(#f)"/>
+  <line x1="770" y1="315" x2="770" y2="343" stroke="#333" marker-end="url(#f)"/>
+  <line x1="727" y1="315" x2="727" y2="488" stroke="#333" marker-end="url(#f)"/>
+  <text x="731" y="475" font-size="9.5" fill="#555">sens</text>
+  <!-- LED : led7, mode, sol_noir vers les bascules de sortie -->
+  <polyline points="445,215 438,215 438,512 443,512" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <text x="442" y="240" font-size="9.5" fill="#555">led7</text>
+  <circle cx="624" cy="130" r="2.5" fill="#333"/>
+  <line x1="624" y1="130" x2="624" y2="488" stroke="#333" marker-end="url(#f)"/>
+  <text x="583" y="475" font-size="9.5" fill="#555">sol_noir</text>
+  <!-- Sorties externes -->
+  <text x="845" y="372" font-weight="bold">EN droit (F14)</text>
+  <line x1="805" y1="368" x2="842" y2="368" stroke="#333" marker-end="url(#f)"/>
+  <text x="845" y="404" font-weight="bold">EN gauche (F15)</text>
+  <polyline points="685,391 685,400 842,400" fill="none" stroke="#333" marker-end="url(#f)"/>
+  <text x="845" y="432" font-weight="bold">PC : TX (D14)</text>
+  <line x1="600" y1="428" x2="842" y2="428" stroke="#333" marker-end="url(#f)"/>
+  <text x="845" y="502" font-weight="bold">DIR moteurs</text>
+  <text x="845" y="515" font-size="10.5">(C15, D15)</text>
+  <line x1="805" y1="498" x2="842" y2="498" stroke="#333" marker-end="url(#f)"/>
+  <text x="845" y="530" font-weight="bold">LED 0..7</text>
+  <line x1="805" y1="526" x2="842" y2="526" stroke="#333" marker-end="url(#f)"/>
+</svg>
+</div>
+<div class="legende">Figure 1 : blocs et liaisons de robot_sumo_top. En jaune, l'unité de contrôle (fsm_combat, suiveur_ligne, message_demarrage, selection_mode) ; en blanc, le chemin de données (adc128s022_ctrl contient aussi un séquenceur SPI). Un point marque une dérivation ; un croisement sans point n'est pas une liaison.</div>
+
+<h3>Rôle de chaque bloc</h3>
+<table>
+<tr><th>Entité (fichier .vhd)</th><th>Horloge</th><th>Rôle</th></tr>
+<tr><td>circuit_reset</td><td>50 MHz</td><td>Reset général <code>rst_b</code> à '0' pendant 1 ms à la mise sous tension et après relâchement de BP1 (BP1 synchronisé par 2 bascules, sortie sur bascule).</td></tr>
+<tr><td>diviseur_frequence</td><td>50 MHz</td><td>Horloge système 500 kHz (division par 100, rapport cyclique 50 %), figée à '0' pendant le reset.</td></tr>
+<tr><td>adc128s022_ctrl</td><td>50 MHz</td><td>Lecture SPI en boucle des 8 voies de l'ADC (SCLK 3,125 MHz). Tient compte du décalage d'une trame entre l'adresse envoyée et la voie convertie ; ignore la première trame après un reset (l'ADC n'a pas de reset).</td></tr>
+<tr><td>detection_capteurs</td><td>500 kHz</td><td>Recopie les mesures dans le domaine 500 kHz ; seuil noir / clair des 5 capteurs de sol ; bordure (un capteur voit clair, maintenue 300 ms pour fixer la durée du recul) ; capteurs IR synchronisés (2 bascules) et remis en logique positive ; code batterie.</td></tr>
+<tr><td>batterie_monitor (+ pwm_gen)</td><td>500 kHz</td><td>Rapport cyclique de LED7 : 10 + (code - 2689) x 31 / 256 % (sans diviseur) ; batterie vide après 1 s consécutive sous 7,2 V : LED7 clignote à 1 Hz, signal <code>batt_vide</code> définitif jusqu'au reset.</td></tr>
+<tr><td>UART_RX, UART_TX</td><td>500 kHz</td><td>Code fourni (nandland), seulement commenté. 52 cycles par bit à 500 kHz, soit 9615 bauds (9600 à 0,16 % près).</td></tr>
+<tr><td>message_demarrage</td><td>500 kHz</td><td>Machine de Moore qui envoie les 14 octets du message une fois après chaque reset, après 1,1 ms de ligne au repos (permet au PC de se resynchroniser si un reset a coupé une trame).</td></tr>
+<tr><td>selection_mode</td><td>500 kHz</td><td>Registre du mode : attente après reset, <code>c</code> combat, <code>s</code> suiveur.</td></tr>
+<tr><td>fsm_combat</td><td>500 kHz</td><td>Machine à états du combat (section 3).</td></tr>
+<tr><td>suiveur_ligne</td><td>500 kHz</td><td>Machine à états du suivi de ligne (section 3).</td></tr>
+<tr><td>pwm_gen (x 2)</td><td>500 kHz</td><td>PWM 5 kHz (période de 100 cycles, consigne en %), consigne prise en compte en début de période, sortie sur bascule, vers ENABLE du pont en H L293D.</td></tr>
+<tr><td>robot_sumo_top</td><td>les deux</td><td>Assemblage ; aiguillage des commandes moteurs (combat en mode combat, sinon suiveur, qui commande l'arrêt hors de son mode) ; recopie des sens moteurs et des LED dans des bascules ; ligne TX maintenue au repos pendant le reset (UART_TX fourni n'a pas de reset).</td></tr>
+</table>
+
+<h3>Affichage sur les LED de la DE0-Nano</h3>
+<table>
+<tr><th>LED</th><th>Signification</th></tr>
+<tr><td>LED7</td><td>Niveau batterie : luminosité proportionnelle (PWM) ; clignotement 1 Hz = batterie vide, moteurs arrêtés.</td></tr>
+<tr><td>LED6, LED5</td><td>Mode : 00 attente, 01 combat, 10 suiveur de ligne.</td></tr>
+<tr><td>LED4 à LED0</td><td>Capteurs de sol vus noirs : LED4 gauche, LED3 centre gauche, LED2 centre, LED1 centre droit, LED0 droit (aide au réglage du seuil).</td></tr>
+</table>
+
+<h2 class="saut">3. Machines à états (unité de contrôle)</h2>
+<h3>3.1 Combat SUMO (fsm_combat), conforme au diagramme du §6.3</h3>
+<table>
+<tr><th>État</th><th>Commande des roues</th><th>Transitions (priorité décroissante)</th></tr>
+<tr><td>POWER_ON</td><td>arrêt</td><td>mode combat choisi (<code>c</code>) -&gt; ATTENTE_5S</td></tr>
+<tr><td>ATTENTE_5S</td><td>arrêt</td><td>5 s écoulées -&gt; RECHERCHE_ADVERSAIRE</td></tr>
+<tr><td>RECHERCHE_ADVERSAIRE</td><td>rotation sur place, 40 % (gauche avant, droite arrière)</td><td>bordure -&gt; EVITEMENT_BORDURE ; adversaire et pas de bordure -&gt; ATTAQUE_ADVERSAIRE</td></tr>
+<tr><td>ATTAQUE_ADVERSAIRE</td><td>marche avant 100 % ; roue du côté de l'adversaire à 25 % s'il n'est vu que d'un côté</td><td>bordure -&gt; EVITEMENT_BORDURE ; plus d'adversaire -&gt; RECHERCHE_ADVERSAIRE</td></tr>
+<tr><td>EVITEMENT_BORDURE</td><td>marche arrière 70 %</td><td>plus de bordure (après le maintien de 300 ms) -&gt; RECHERCHE_ADVERSAIRE</td></tr>
+<tr><td>ARRET</td><td>arrêt définitif</td><td>aucune (seul un reset en sort)</td></tr>
+</table>
+<p>Depuis tout état : reset -&gt; POWER_ON ; batterie vide -&gt; ARRET (priorité sur tout le reste). Depuis tout état sauf ARRET : mode combat quitté par le PC -&gt; POWER_ON. Codage observable (<code>etat_dbg</code>, Signal Tap) : 000 à 101 dans l'ordre du tableau.</p>
+
+<h3>3.2 Suiveur de ligne (suiveur_ligne)</h3>
+<table>
+<tr><th>État</th><th>Comportement</th></tr>
+<tr><td>INACTIF</td><td>Mode suiveur non choisi : arrêt, compteur d'extrémités remis à 0.</td></tr>
+<tr><td>SUIVI</td><td>Correction par paliers selon les capteurs : centre seul = tout droit 60 % ; centre gauche = roue gauche ralentie à 25 % ; gauche seul = pivot à gauche ; symétrique à droite. Mémorise le dernier côté vu.</td></tr>
+<tr><td>PERTE_LIGNE</td><td>Tous les capteurs voient blanc : tourne vers le dernier côté vu ; si la ligne était centrée, avance lentement et compte : 200 ms de blanc consécutif = extrémité de ligne.</td></tr>
+<tr><td>DEMI_TOUR</td><td>Pivot à droite jusqu'à ce que le capteur central revoie la ligne, puis SUIVI.</td></tr>
+<tr><td>FIN_PARCOURS</td><td>4e extrémité atteinte (2 allers/retours, retour au départ) : arrêt.</td></tr>
+<tr><td>ARRET_BATTERIE</td><td>Batterie vide : arrêt définitif jusqu'au reset.</td></tr>
+</table>
+
+<h2>4. Ressources à compiler</h2>
+<table>
+<tr><th>Élément</th><th>Valeur</th></tr>
+<tr><td>Outil</td><td>Quartus Prime Lite Edition 20.1.0 Build 711</td></tr>
+<tr><td>Composant</td><td>Cyclone IV E EP4CE22F17C6 (carte DE0-Nano)</td></tr>
+<tr><td>Projet</td><td><code>quartus/robot_sumo.qpf</code> (régénérable par <code>quartus_sh -t ../constraints/creer_projet.tcl</code> depuis <code>quartus/</code>)</td></tr>
+<tr><td>Entité top-level</td><td><code>robot_sumo_top</code></td></tr>
+<tr><td>Sources VHDL (<code>src/</code>, VHDL-93)</td><td>sumo_pkg, circuit_reset, diviseur_frequence, pwm_gen, UART_RX, UART_TX, message_demarrage, selection_mode, adc128s022_ctrl, detection_capteurs, batterie_monitor, fsm_combat, suiveur_ligne, robot_sumo_top</td></tr>
+<tr><td>Contraintes</td><td><code>constraints/creer_projet.tcl</code> (broches, composant), <code>constraints/robot_sumo.sdc</code> (horloges 50 MHz et 500 kHz générée)</td></tr>
+<tr><td>Ressources utilisées</td><td>741 éléments logiques sur 22 320 (3 %), 450 registres, 22 broches, 0 bloc mémoire, 0 multiplieur, 0 PLL</td></tr>
+<tr><td>Analyse temporelle</td><td>Toutes les marges positives sur tous les modèles (setup 50 MHz : +12,5 ns ; hold minimal : +0,17 ns) ; aucun latch</td></tr>
+<tr><td>Fichiers de programmation</td><td><code>quartus/output_files/robot_sumo.sof</code> (SRAM, non persistant) et <code>robot_sumo.jic</code> (EEPROM EPCS64, persistant)</td></tr>
+</table>
+
+<h3>Brochage (carte d'interface robot sur le connecteur 2x13 JP3)</h3>
+<table>
+<tr><th>Signal</th><th>Broche</th><th>Signal</th><th>Broche</th></tr>
+<tr><td>clock_50</td><td>R8</td><td>uart_rx / uart_tx</td><td>D16 / D14</td></tr>
+<tr><td>bp1_b (BP1)</td><td>G15</td><td>mot_gauche_dir / mot_gauche_en</td><td>C15 / F15</td></tr>
+<tr><td>ir_gauche_b / ir_droit_b</td><td>A14 / C14</td><td>mot_droit_dir / mot_droit_en</td><td>D15 / F14</td></tr>
+<tr><td>adc_cs_n / adc_saddr</td><td>A10 / B10</td><td>adc_sdat / adc_sclk</td><td>A9 / B14</td></tr>
+<tr><td colspan="4">led[0..7] : A15, A13, B13, A11, D1, F3, B1, L3. Voies ADC : 0 batterie, 1 centre gauche, 2 centre, 3 centre droit, 4 gauche, 5 droit.</td></tr>
+</table>
+
+<h2 class="saut">5. Mise en œuvre</h2>
+<h3>5.1 Compiler</h3>
+<ol>
+  <li>Ouvrir <code>quartus/robot_sumo.qpf</code> dans Quartus Prime Lite 20.1 (ou régénérer le projet avec le script Tcl).</li>
+  <li>Lancer la compilation complète (flèche verte). Résultat attendu : 0 erreur ; 7 avertissements connus (signaux gardés pour le Signal Tap, intensité de sortie non précisée, rappel 3,3 V, LogicLock).</li>
+  <li>Pour une configuration persistante, le fichier <code>robot_sumo.jic</code> est fourni (sinon : File &gt; Convert Programming Files, EPCS64, SFL EP4CE22, comme dans <code>Program_eeprom_de0.pdf</code>).</li>
+</ol>
+<h3>5.2 Programmer et tester</h3>
+<ol>
+  <li>Vérifier d'abord le robot avec <code>SumoTests.jic</code> (capteurs, moteurs, batterie, BP1) comme le conseille le sujet.</li>
+  <li>Programmer la DE0-Nano par l'USB-Blaster (Tools &gt; Programmer, mode JTAG) avec <code>robot_sumo.jic</code>.</li>
+  <li>Relier le câble mini USB du module USB/série au PC ; ouvrir PuTTY sur le port COM correspondant : 9600 bauds, 8 bits, pas de parité, 1 stop, pas de contrôle de flux (<code>ConfigDePutty.pdf</code>).</li>
+  <li>Mettre le robot sous tension : <code>Robot PRET !</code> s'affiche ; LED6 et LED5 éteintes (attente).</li>
+  <li>Taper <code>c</code> : LED5 allumée, combat après 5 s. Taper <code>s</code> : LED6 allumée, suivi de ligne immédiat. BP1 : reset (nouveau message, retour en attente).</li>
+</ol>
+<h3>5.3 Réglages sur le robot réel (fichier <code>src/sumo_pkg.vhd</code>, puis recompiler)</h3>
+<table>
+<tr><th>Constante</th><th>Valeur de départ</th><th>Comment la régler</th></tr>
+<tr><td>SEUIL_NOIR</td><td>2048</td><td>Poser le robot sur noir, gris (ligne de départ), beige (bordure), blanc : les LED0 à 4 doivent s'allumer sur noir et gris, s'éteindre sur beige et blanc.</td></tr>
+<tr><td>DIR_AVANT_GAUCHE / DIR_AVANT_DROIT</td><td>'1' / '1'</td><td>En recherche, la roue gauche doit avancer et la droite reculer ; inverser la constante de la roue fautive (moteurs montés en miroir).</td></tr>
+<tr><td>VITESSE_*</td><td>100 / 40 / 70 / 60 / 25 %</td><td>Attaque, recherche, recul, suivi, roue intérieure en virage.</td></tr>
+<tr><td>BORDURE_MAINTIEN_CYCLES</td><td>150 000 (300 ms)</td><td>Durée du recul après détection de la bordure.</td></tr>
+<tr><td>FIN_LIGNE_CYCLES</td><td>100 000 (200 ms)</td><td>À régler sur la piste EMA : assez long pour ne pas confondre un virage serré avec une extrémité.</td></tr>
+</table>
+<div class="note">Si aucun message n'apparaît dans PuTTY : vérifier le port COM, puis le sens RX/TX (broches D16 et D14 dans <code>creer_projet.tcl</code>). Si les capteurs IR gauche et droit sont inversés : échanger A14 et C14.</div>
+
+<h2>6. Vérification réalisée</h2>
+<p>Chaque entité a un banc de test auto-vérifiant (dossier <code>tb/</code>, simulateur GHDL, assertions, chien de garde) qui affiche <code>TEST OK</code> seulement si tous les contrôles passent. Les bancs ont été eux-mêmes vérifiés par injection d'erreurs (mutations) : chaque erreur plausible introduite volontairement dans le code est détectée. Le code est aussi analysé en VHDL-93 (réglage du projet Quartus) et contrôlé sans latch.</p>
+<table>
+<tr><th>Banc de test</th><th>Contrôles</th><th>Banc de test</th><th>Contrôles</th></tr>
+<tr><td>tb_sumo_pkg</td><td>43</td><td>tb_adc128s022_ctrl (+ modèle de l'ADC)</td><td>135 + observateur à chaque cycle</td></tr>
+<tr><td>tb_diviseur_frequence</td><td>155</td><td>tb_detection_capteurs</td><td>312</td></tr>
+<tr><td>tb_circuit_reset</td><td>220</td><td>tb_batterie_monitor</td><td>2 337</td></tr>
+<tr><td>tb_pwm_gen</td><td>233</td><td>tb_fsm_combat</td><td>733</td></tr>
+<tr><td>tb_UART_RX (bouclage TX/RX)</td><td>545</td><td>tb_suiveur_ligne</td><td>1 211</td></tr>
+<tr><td>tb_message_demarrage</td><td>105</td><td>tb_robot_sumo_top (système complet)</td><td>111</td></tr>
+<tr><td>tb_selection_mode</td><td>776</td><td></td><td></td></tr>
+</table>
+<p>Le banc système simule le robot entier : message de démarrage reçu par un PC simulé, commande <code>c</code>, recherche, attaque (des deux côtés et d'un seul), recul sur la bordure, batterie vide, reset par BP1, commande <code>s</code>, suivi de ligne (tout droit, virage doux, pivot), extrémité de ligne et demi-tour, puis batterie vide en mode suiveur. Les sources des bancs et le script <code>sim/run_tb.sh &lt;entité&gt; [dépendances]</code> (dépendances listées dans <code>sim/modules.lst</code>) permettent de rejouer chaque banc. Le script <code>sim/run_all.sh</code> rejoue tous les bancs puis lance <code>sim/check_uart_origine.sh</code>, qui compare UART_RX et UART_TX aux fichiers d'origine fournis par l'enseignant (copiés dans <code>docs/Projet_FPGA_2026/VHDL_UART/</code> du rendu) pour prouver que leur logique n'a pas été modifiée.</p>
+
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Fins de ligne : les scripts bash doivent garder LF pour Git Bash.
+*.sh   text eol=lf
+*.vhd  text
+*.tcl  text
+*.sdc  text
+*.py   text
+*.html text
+# Fichiers binaires
+*.sof  binary
+*.jic  binary
+*.pdf  binary

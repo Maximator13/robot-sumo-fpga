@@ -1,0 +1,15 @@
+# Modules validés, dans l'ordre d'intégration : <entite> [dependance ...]
+# Ajouter une ligne uniquement après "VALIDE" de sim/run_tb.sh.
+sumo_pkg
+diviseur_frequence
+circuit_reset
+pwm_gen
+UART_RX UART_TX
+message_demarrage UART_TX
+selection_mode UART_RX
+adc128s022_ctrl adc128s022_model
+detection_capteurs
+batterie_monitor pwm_gen
+fsm_combat
+suiveur_ligne
+robot_sumo_top circuit_reset diviseur_frequence pwm_gen UART_RX UART_TX message_demarrage selection_mode adc128s022_ctrl detection_capteurs batterie_monitor fsm_combat suiveur_ligne adc128s022_model
