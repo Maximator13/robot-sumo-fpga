@@ -89,6 +89,16 @@ ARCHITECTURE batterie_monitor_arch OF batterie_monitor IS
   -- Bascule de sortie de LED7.
   SIGNAL led7_reg : STD_LOGIC;
 
+  -- Générateur PWM (même composant que pour les moteurs, cours VHDL §7.1) :
+  -- transforme la consigne en % en signal de luminosité pour LED7.
+  COMPONENT pwm_gen IS
+    GENERIC (PERIODE_CYCLES : NATURAL);
+    PORT (clk   : IN  STD_LOGIC;
+          rst_b : IN  STD_LOGIC;
+          duty  : IN  t_duty;
+          pwm   : OUT STD_LOGIC);
+  END COMPONENT pwm_gen;
+
 BEGIN
 
   ------------------------------------------------------------------------------
@@ -162,7 +172,7 @@ BEGIN
   ------------------------------------------------------------------------------
   -- Générateur PWM de LED7 (même module que pour les moteurs).
   ------------------------------------------------------------------------------
-  u_pwm_gen : ENTITY WORK.pwm_gen
+  u_pwm_gen : pwm_gen
     GENERIC MAP (PERIODE_CYCLES => PERIODE_PWM_G)
     PORT MAP (clk => clk, rst_b => rst_b, duty => duty_led, pwm => pwm_led);
 

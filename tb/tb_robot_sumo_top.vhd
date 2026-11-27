@@ -62,6 +62,13 @@ ARCHITECTURE tb_robot_sumo_top_arch OF tb_robot_sumo_top IS
   CONSTANT BORDURE_SIM   : NATURAL := 100;    -- 200 µs
   CONSTANT FIN_LIGNE_SIM : NATURAL := 200;    -- 400 µs
 
+  -- Délai entre un changement de tension vu par l'ADC et l'effet sur les
+  -- moteurs, en plus du filtre batterie : l'IP de l'ADC ne publie ses 8
+  -- voies qu'à la fin d'un tour complet (jusqu'à 2 tours, environ 90 µs),
+  -- puis le générateur PWM n'applique la nouvelle consigne qu'au début de
+  -- la période suivante (jusqu'à 200 µs à 5 kHz). Marge totale : 300 µs.
+  CONSTANT LATENCE_ADC_PWM : TIME := 300 us;
+
   -- Codes ADC utiles.
   CONSTANT CODE_NOIR  : t_mot_adc := TO_UNSIGNED(3200, 12);  -- sol noir (> SEUIL_NOIR)
   CONSTANT CODE_CLAIR : t_mot_adc := TO_UNSIGNED(400, 12);   -- sol clair (bordure, piste)
@@ -175,6 +182,9 @@ BEGIN
     VARIABLE nb_echecs    : NATURAL := 0;
     VARIABLE hauts_g, hauts_d : NATURAL;
     VARIABLE premier : NATURAL;
+    -- Violations de timing SPI dues à la trame interrompue par l'appui sur
+    -- BP1 (voir le scénario 6).
+    VARIABLE err_avant_bp1, err_trame_bp1 : NATURAL;
 
     PROCEDURE verifier (condition : BOOLEAN; message : STRING) IS
     BEGIN
@@ -302,7 +312,7 @@ BEGIN
     -- 5. Batterie basse prolongée : arrêt définitif, LED7 clignote.
     ----------------------------------------------------------------------------
     valeurs(VOIE_BAT) <= CODE_BAT_BAS;
-    WAIT FOR (FILTRE_SIM + 50) * 2 us;
+    WAIT FOR (FILTRE_SIM + 50) * 2 us + LATENCE_ADC_PWM;
     mesurer_pwm(hauts_g, hauts_d);
     verifier(hauts_g = 0 AND hauts_d = 0, "batterie vide : moteurs pas arrêtés");
     WAIT UNTIL led(7) = '1' FOR 2 ms;
@@ -318,10 +328,19 @@ BEGIN
     ----------------------------------------------------------------------------
     -- 6. Appui sur BP1 : reset, nouveau message, mode attente.
     ----------------------------------------------------------------------------
+    -- L'IP de l'ADC (catalogue Quartus) ne remet pas sa machine à états à
+    -- zéro pendant son reset : une trame SPI en cours reste figée (CS à '0',
+    -- SCLK arrêtée) pendant le reset, puis se termine. Le modèle d'ADC voit
+    -- donc des durées de SCLK hors datasheet sur cette seule trame. On compte
+    -- à part les violations de cette trame (au plus 3 : période, tCL, tCH)
+    -- et on exige toujours 0 violation partout ailleurs.
+    err_avant_bp1 := err_timing;
     bp1_b <= '0'; WAIT FOR 10 us; bp1_b <= '1';
     WAIT FOR 100 ns;
     verifier(rst_sys = '0', "BP1 n'a pas déclenché le reset");
     verifier_message("après BP1");
+    err_trame_bp1 := err_timing - err_avant_bp1;
+    verifier(err_trame_bp1 <= 3, INTEGER'IMAGE(err_trame_bp1) & " violation(s) SPI autour de BP1 : plus d'une trame touchée");
     verifier(led(6 DOWNTO 5) = "00", "le reset ne remet pas le mode en attente");
     mesurer_pwm(hauts_g, hauts_d);
     verifier(hauts_g = 0 AND hauts_d = 0, "moteurs actifs après le reset");
@@ -390,7 +409,7 @@ BEGIN
     -- Batterie basse prolongée pendant le demi-tour : le suiveur doit aussi
     -- arrêter les moteurs (CDC §6.4, quel que soit le mode), LED7 clignote.
     valeurs(VOIE_BAT) <= CODE_BAT_BAS;
-    WAIT FOR (FILTRE_SIM + 50) * 2 us;
+    WAIT FOR (FILTRE_SIM + 50) * 2 us + LATENCE_ADC_PWM;
     mesurer_pwm(hauts_g, hauts_d);
     verifier(hauts_g = 0 AND hauts_d = 0, "batterie vide en mode suiveur : moteurs pas arrêtés");
     WAIT UNTIL led(7) = '1' FOR 2 ms;
@@ -400,7 +419,7 @@ BEGIN
     verifier(led(7) = '1', "batterie vide en mode suiveur : LED7 ne clignote pas");
 
     -- Aucune violation de timing vue par le modèle d'ADC.
-    verifier(err_timing = 0, INTEGER'IMAGE(err_timing) & " violation(s) de timing sur le bus de l'ADC");
+    verifier(err_timing - err_trame_bp1 = 0, INTEGER'IMAGE(err_timing - err_trame_bp1) & " violation(s) de timing sur le bus de l'ADC (hors trame coupée par BP1)");
 
     -- Bilan.
     IF nb_echecs = 0 AND erreurs_struct = 0 THEN

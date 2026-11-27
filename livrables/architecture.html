@@ -57,7 +57,7 @@
   <text x="355" y="100" text-anchor="middle" font-weight="bold">diviseur_</text>
   <text x="355" y="116" text-anchor="middle" font-weight="bold">frequence</text>
   <rect x="180" y="160" width="225" height="88" rx="4" fill="#fff" stroke="#333"/>
-  <text x="292" y="183" text-anchor="middle" font-weight="bold">adc128s022_ctrl</text>
+  <text x="292" y="183" text-anchor="middle" font-weight="bold">adc_ctrl (IP du TP2)</text>
   <text x="292" y="201" text-anchor="middle" font-size="10.5">SPI 3,125 MHz, 8 voies en boucle</text>
   <text x="292" y="218" text-anchor="middle" font-size="10.5">sortie voies(0..7), 12 bits</text>
   <!-- Notes : reset, horloge système, paquetage -->
@@ -182,14 +182,14 @@
   <line x1="805" y1="526" x2="842" y2="526" stroke="#333" marker-end="url(#f)"/>
 </svg>
 </div>
-<div class="legende">Figure 1 : blocs et liaisons de robot_sumo_top. En jaune, l'unité de contrôle (fsm_combat, suiveur_ligne, message_demarrage, selection_mode) ; en blanc, le chemin de données (adc128s022_ctrl contient aussi un séquenceur SPI). Un point marque une dérivation ; un croisement sans point n'est pas une liaison.</div>
+<div class="legende">Figure 1 : blocs et liaisons de robot_sumo_top. En jaune, l'unité de contrôle (fsm_combat, suiveur_ligne, message_demarrage, selection_mode) ; en blanc, le chemin de données (adc_ctrl est l'IP « ADC Controller for DE-series Boards » du catalogue IP de Quartus, la même qu'au TP2). Un point marque une dérivation ; un croisement sans point n'est pas une liaison.</div>
 
 <h3>Rôle de chaque bloc</h3>
 <table>
 <tr><th>Entité (fichier .vhd)</th><th>Horloge</th><th>Rôle</th></tr>
 <tr><td>circuit_reset</td><td>50 MHz</td><td>Reset général <code>rst_b</code> à '0' pendant 1 ms à la mise sous tension et après relâchement de BP1 (BP1 synchronisé par 2 bascules, sortie sur bascule).</td></tr>
 <tr><td>diviseur_frequence</td><td>50 MHz</td><td>Horloge système 500 kHz (division par 100, rapport cyclique 50 %), figée à '0' pendant le reset.</td></tr>
-<tr><td>adc128s022_ctrl</td><td>50 MHz</td><td>Lecture SPI en boucle des 8 voies de l'ADC (SCLK 3,125 MHz). Tient compte du décalage d'une trame entre l'adresse envoyée et la voie convertie ; ignore la première trame après un reset (l'ADC n'a pas de reset).</td></tr>
+<tr><td>adc_ctrl (IP, dossier <code>ip/adc_ctrl</code>)</td><td>50 MHz</td><td>IP « ADC Controller for DE-series Boards » (University Program, comme au TP2) : lecture SPI en boucle des 8 voies de l'ADC (SCLK 50 MHz / 16 = 3,125 MHz), sorties CH0 à CH7 sur 12 bits rangées dans le tableau <code>s_voies</code> du top. Son reset est actif haut (reçoit NOT rst_b). Le générateur d'IP de Quartus 20.1 ignore les réglages de la fenêtre : la carte (DE0-Nano) et le nombre de voies (8) sont corrigés à la main dans <code>adc_ctrl_adc_mega_0.v</code> (commentaire dans le fichier, à refaire si l'IP est régénérée). Limite connue de l'IP : un reset (BP1) arrivant au milieu d'une trame la fige jusqu'à la fin du reset ; seule cette mesure peut être faussée, elle est relue environ 45 µs plus tard.</td></tr>
 <tr><td>detection_capteurs</td><td>500 kHz</td><td>Recopie les mesures dans le domaine 500 kHz ; seuil noir / clair des 5 capteurs de sol ; bordure (un capteur voit clair, maintenue 300 ms pour fixer la durée du recul) ; capteurs IR synchronisés (2 bascules) et remis en logique positive ; code batterie.</td></tr>
 <tr><td>batterie_monitor (+ pwm_gen)</td><td>500 kHz</td><td>Rapport cyclique de LED7 : 10 + (code - 2689) x 31 / 256 % (sans diviseur) ; batterie vide après 1 s consécutive sous 7,2 V : LED7 clignote à 1 Hz, signal <code>batt_vide</code> définitif jusqu'au reset.</td></tr>
 <tr><td>UART_RX, UART_TX</td><td>500 kHz</td><td>Code fourni (nandland), seulement commenté. 52 cycles par bit à 500 kHz, soit 9615 bauds (9600 à 0,16 % près).</td></tr>
@@ -238,12 +238,13 @@
 <tr><th>Élément</th><th>Valeur</th></tr>
 <tr><td>Outil</td><td>Quartus Prime Lite Edition 20.1.0 Build 711</td></tr>
 <tr><td>Composant</td><td>Cyclone IV E EP4CE22F17C6 (carte DE0-Nano)</td></tr>
-<tr><td>Projet</td><td><code>quartus/robot_sumo.qpf</code> (régénérable par <code>quartus_sh -t ../constraints/creer_projet.tcl</code> depuis <code>quartus/</code>)</td></tr>
+<tr><td>Projet</td><td><code>quartus/robot_sumo.qpf</code> (broches et options dans <code>quartus/robot_sumo.qsf</code>, visibles dans le Pin Planner)</td></tr>
 <tr><td>Entité top-level</td><td><code>robot_sumo_top</code></td></tr>
-<tr><td>Sources VHDL (<code>src/</code>, VHDL-93)</td><td>sumo_pkg, circuit_reset, diviseur_frequence, pwm_gen, UART_RX, UART_TX, message_demarrage, selection_mode, adc128s022_ctrl, detection_capteurs, batterie_monitor, fsm_combat, suiveur_ligne, robot_sumo_top</td></tr>
-<tr><td>Contraintes</td><td><code>constraints/creer_projet.tcl</code> (broches, composant), <code>constraints/robot_sumo.sdc</code> (horloges 50 MHz et 500 kHz générée)</td></tr>
-<tr><td>Ressources utilisées</td><td>741 éléments logiques sur 22 320 (3 %), 450 registres, 22 broches, 0 bloc mémoire, 0 multiplieur, 0 PLL</td></tr>
-<tr><td>Analyse temporelle</td><td>Toutes les marges positives sur tous les modèles (setup 50 MHz : +12,5 ns ; hold minimal : +0,17 ns) ; aucun latch</td></tr>
+<tr><td>Sources VHDL (<code>src/</code>, VHDL-93)</td><td>sumo_pkg, circuit_reset, diviseur_frequence, pwm_gen, UART_RX, UART_TX, message_demarrage, selection_mode, detection_capteurs, batterie_monitor, fsm_combat, suiveur_ligne, robot_sumo_top. Description structurelle du top : composants déclarés (COMPONENT) puis instanciés (PORT MAP), comme au §7 du cours ; UART_RX et UART_TX sont instanciés sous les noms recepteur_serie et emetteur_serie avec une configuration (cours §8), car VHDL confondrait UART_RX avec le port uart_rx.</td></tr>
+<tr><td>IP de l'ADC</td><td><code>ip/adc_ctrl.qsys</code> (configuration : DE0-Nano, 3,2 MHz, 8 voies, horloge 50 MHz) et fichiers générés dans <code>ip/adc_ctrl/</code>, ajoutés au projet par <code>ip/adc_ctrl/synthesis/adc_ctrl.qip</code></td></tr>
+<tr><td>Contraintes</td><td><code>constraints/robot_sumo.sdc</code> (horloges 50 MHz et 500 kHz générée)</td></tr>
+<tr><td>Ressources utilisées</td><td>848 éléments logiques sur 22 320 (4 %), 532 registres, 22 broches, 0 bloc mémoire, 0 multiplieur, 0 PLL</td></tr>
+<tr><td>Analyse temporelle</td><td>Toutes les marges positives sur tous les modèles (setup 50 MHz : +11,8 ns ; hold minimal : +0,17 ns) ; aucun latch</td></tr>
 <tr><td>Fichiers de programmation</td><td><code>quartus/output_files/robot_sumo.sof</code> (SRAM, non persistant) et <code>robot_sumo.jic</code> (EEPROM EPCS64, persistant)</td></tr>
 </table>
 
@@ -260,8 +261,8 @@
 <h2 class="saut">5. Mise en œuvre</h2>
 <h3>5.1 Compiler</h3>
 <ol>
-  <li>Ouvrir <code>quartus/robot_sumo.qpf</code> dans Quartus Prime Lite 20.1 (ou régénérer le projet avec le script Tcl).</li>
-  <li>Lancer la compilation complète (flèche verte). Résultat attendu : 0 erreur ; 7 avertissements connus (signaux gardés pour le Signal Tap, intensité de sortie non précisée, rappel 3,3 V, LogicLock).</li>
+  <li>Ouvrir <code>quartus/robot_sumo.qpf</code> dans Quartus Prime Lite 20.1.</li>
+  <li>Lancer la compilation complète (flèche verte). Résultat attendu : 0 erreur ; 3 avertissements génériques (intensité de sortie non précisée, rappel 3,3 V, LogicLock).</li>
   <li>Pour une configuration persistante, le fichier <code>robot_sumo.jic</code> est fourni (sinon : File &gt; Convert Programming Files, EPCS64, SFL EP4CE22, comme dans <code>Program_eeprom_de0.pdf</code>).</li>
 </ol>
 <h3>5.2 Programmer et tester</h3>
@@ -281,21 +282,20 @@
 <tr><td>BORDURE_MAINTIEN_CYCLES</td><td>150 000 (300 ms)</td><td>Durée du recul après détection de la bordure.</td></tr>
 <tr><td>FIN_LIGNE_CYCLES</td><td>100 000 (200 ms)</td><td>À régler sur la piste EMA : assez long pour ne pas confondre un virage serré avec une extrémité.</td></tr>
 </table>
-<div class="note">Si aucun message n'apparaît dans PuTTY : vérifier le port COM, puis le sens RX/TX (broches D16 et D14 dans <code>creer_projet.tcl</code>). Si les capteurs IR gauche et droit sont inversés : échanger A14 et C14.</div>
+<div class="note">Si aucun message n'apparaît dans PuTTY : vérifier le port COM, puis le sens RX/TX (broches D16 et D14 dans le Pin Planner). Si les capteurs IR gauche et droit sont inversés : échanger A14 et C14.</div>
 
 <h2>6. Vérification réalisée</h2>
-<p>Chaque entité a un banc de test auto-vérifiant (dossier <code>tb/</code>, simulateur GHDL, assertions, chien de garde) qui affiche <code>TEST OK</code> seulement si tous les contrôles passent. Les bancs ont été eux-mêmes vérifiés par injection d'erreurs (mutations) : chaque erreur plausible introduite volontairement dans le code est détectée. Le code est aussi analysé en VHDL-93 (réglage du projet Quartus) et contrôlé sans latch.</p>
+<p>Chaque entité a un banc de test auto-vérifiant (dossier <code>tb/</code>, simulateur ModelSim, assertions, chien de garde) qui affiche <code>TEST OK</code> seulement si tous les contrôles passent. Le code synthétisable est en VHDL-93 (réglage du projet Quartus) et la compilation ne produit aucun latch.</p>
 <table>
 <tr><th>Banc de test</th><th>Contrôles</th><th>Banc de test</th><th>Contrôles</th></tr>
-<tr><td>tb_sumo_pkg</td><td>43</td><td>tb_adc128s022_ctrl (+ modèle de l'ADC)</td><td>135 + observateur à chaque cycle</td></tr>
+<tr><td>tb_sumo_pkg</td><td>43</td><td>tb_robot_sumo_top (système complet, IP de l'ADC + modèle de l'ADC)</td><td>112</td></tr>
 <tr><td>tb_diviseur_frequence</td><td>155</td><td>tb_detection_capteurs</td><td>312</td></tr>
 <tr><td>tb_circuit_reset</td><td>220</td><td>tb_batterie_monitor</td><td>2 337</td></tr>
 <tr><td>tb_pwm_gen</td><td>233</td><td>tb_fsm_combat</td><td>733</td></tr>
 <tr><td>tb_UART_RX (bouclage TX/RX)</td><td>545</td><td>tb_suiveur_ligne</td><td>1 211</td></tr>
-<tr><td>tb_message_demarrage</td><td>105</td><td>tb_robot_sumo_top (système complet)</td><td>111</td></tr>
-<tr><td>tb_selection_mode</td><td>776</td><td></td><td></td></tr>
+<tr><td>tb_message_demarrage</td><td>105</td><td>tb_selection_mode</td><td>776</td></tr>
 </table>
-<p>Le banc système simule le robot entier : message de démarrage reçu par un PC simulé, commande <code>c</code>, recherche, attaque (des deux côtés et d'un seul), recul sur la bordure, batterie vide, reset par BP1, commande <code>s</code>, suivi de ligne (tout droit, virage doux, pivot), extrémité de ligne et demi-tour, puis batterie vide en mode suiveur. Les sources des bancs et le script <code>sim/run_tb.sh &lt;entité&gt; [dépendances]</code> (dépendances listées dans <code>sim/modules.lst</code>) permettent de rejouer chaque banc. Le script <code>sim/run_all.sh</code> rejoue tous les bancs puis lance <code>sim/check_uart_origine.sh</code>, qui compare UART_RX et UART_TX aux fichiers d'origine fournis par l'enseignant (copiés dans <code>docs/Projet_FPGA_2026/VHDL_UART/</code> du rendu) pour prouver que leur logique n'a pas été modifiée.</p>
+<p>Le banc système simule le robot entier : message de démarrage reçu par un PC simulé, commande <code>c</code>, recherche, attaque (des deux côtés et d'un seul), recul sur la bordure, batterie vide, reset par BP1, commande <code>s</code>, suivi de ligne (tout droit, virage doux, pivot), extrémité de ligne et demi-tour, puis batterie vide en mode suiveur. Pour rejouer tous les bancs : ouvrir ModelSim (livré avec Quartus), File &gt; Change Directory vers le dossier <code>sim/</code>, puis taper <code>do simuler.do</code> dans la console. Le script compile l'IP de l'ADC, les sources et les bancs, lance chaque banc et affiche un bilan (OK / ECHEC).</p>
 
 </body>
 </html>

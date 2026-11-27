@@ -18,8 +18,8 @@
 # -------------------------------------------------------------------------- #
 #
 # Quartus Prime
-# Version 20.1.0 Build 711 06/05/2020 SJ Lite Edition
-# Date created = 17:28:53  November 24, 2026
+# Version 20.1.1 Build 720 11/11/2020 SJ Lite Edition
+# Date created = 09:08:11  November 27, 2026
 #
 # -------------------------------------------------------------------------- #
 #
@@ -40,9 +40,9 @@
 set_global_assignment -name FAMILY "Cyclone IV E"
 set_global_assignment -name DEVICE EP4CE22F17C6
 set_global_assignment -name TOP_LEVEL_ENTITY robot_sumo_top
-set_global_assignment -name ORIGINAL_QUARTUS_VERSION 20.1.0
-set_global_assignment -name PROJECT_CREATION_TIME_DATE "17:28:53  NOVEMBER 24, 2026"
-set_global_assignment -name LAST_QUARTUS_VERSION "20.1.0 Lite Edition"
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION 20.1.1
+set_global_assignment -name PROJECT_CREATION_TIME_DATE "09:08:11  NOVEMBER 27, 2026"
+set_global_assignment -name LAST_QUARTUS_VERSION "20.1.1 Lite Edition"
 set_global_assignment -name VHDL_INPUT_VERSION VHDL_1993
 set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
 set_global_assignment -name STRATIX_DEVICE_IO_STANDARD "3.3-V LVTTL"
@@ -57,12 +57,12 @@ set_global_assignment -name VHDL_FILE ../src/UART_RX.vhd
 set_global_assignment -name VHDL_FILE ../src/UART_TX.vhd
 set_global_assignment -name VHDL_FILE ../src/message_demarrage.vhd
 set_global_assignment -name VHDL_FILE ../src/selection_mode.vhd
-set_global_assignment -name VHDL_FILE ../src/adc128s022_ctrl.vhd
 set_global_assignment -name VHDL_FILE ../src/detection_capteurs.vhd
 set_global_assignment -name VHDL_FILE ../src/batterie_monitor.vhd
 set_global_assignment -name VHDL_FILE ../src/fsm_combat.vhd
 set_global_assignment -name VHDL_FILE ../src/suiveur_ligne.vhd
 set_global_assignment -name VHDL_FILE ../src/robot_sumo_top.vhd
+set_global_assignment -name QIP_FILE ../ip/adc_ctrl/synthesis/adc_ctrl.qip
 set_location_assignment PIN_R8 -to clock_50
 set_location_assignment PIN_G15 -to bp1_b
 set_location_assignment PIN_A14 -to ir_gauche_b

@@ -33,9 +33,8 @@ BEGIN
     VARIABLE nb_controles : NATURAL := 0;
     VARIABLE nb_echecs    : NATURAL := 0;
 
-    -- Effectue un contrôle. Sous GHDL (--assert-level=error) un échec arrête
-    -- la simulation ; sous ModelSim/Questa, qui continue après une ERROR, le
-    -- compteur nb_echecs empêche d'afficher "TEST OK" à tort.
+    -- Effectue un contrôle. ModelSim continue après une assertion de niveau
+    -- ERROR : le compteur nb_echecs empêche d'afficher "TEST OK" à tort.
     PROCEDURE verifier (condition : BOOLEAN; message : STRING) IS
     BEGIN
       nb_controles := nb_controles + 1;

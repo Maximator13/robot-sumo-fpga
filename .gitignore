@@ -1,15 +1,8 @@
-# Documents du cours (Moodle) : à télécharger par chacun, non diffusés
-docs/*
-!docs/Projet_FPGA_2026/
-docs/Projet_FPGA_2026/*
-!docs/Projet_FPGA_2026/VHDL_UART/
-
-# Simulation GHDL (générés)
+# Simulation ModelSim (générés par sim/simuler.do)
 sim/work/
-sim/work93/
-sim/logs/
-*.ghw
-*.cf
+sim/*.log
+sim/transcript
+*.wlf
 
 # Quartus (générés ; seuls .qpf, .qsf, .sof et .jic sont gardés)
 quartus/db/
@@ -17,17 +10,10 @@ quartus/incremental_db/
 quartus/output_files/*
 !quartus/output_files/robot_sumo.sof
 !quartus/output_files/robot_sumo.jic
-quartus/*.log
 quartus/*.qws
-quartus/*.rpt
-quartus/*.summary
-quartus/*.smsg
-quartus/*.done
-quartus/*.jdi
-quartus/*.pin
-quartus/*.sld
+
+# IP : état de l'éditeur Platform Designer
+ip/.qsys_edit/
 
 # Archives régénérables
 livrables/*.zip
-__pycache__/
-*.pyc
